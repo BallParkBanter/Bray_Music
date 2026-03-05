@@ -31,6 +31,15 @@ class TrackMeta(BaseModel):
     seed: int = 0
     lyrics: str = ""
     favorite: bool = False
+    # Generation params (defaults for backward compat with existing history)
+    bpm: str = ""
+    key: str = ""
+    creativity: int = 50
+    include_vocals: bool = True
+    enhance_lyrics: bool = False
+    # Quality validation (populated by Whisper service)
+    quality_score: Optional[float] = None
+    quality_rating: Optional[str] = None
 
 
 class HistoryResponse(BaseModel):

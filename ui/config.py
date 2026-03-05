@@ -6,6 +6,7 @@ NEXTCLOUD_URL = os.environ.get("NEXTCLOUD_URL", "https://nextcloud.services.bray
 NEXTCLOUD_USER = os.environ.get("NEXTCLOUD_USER", "bobray")
 NEXTCLOUD_PASS = os.environ.get("NEXTCLOUD_PASS", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.145:11434")
+WHISPER_URL = os.environ.get("WHISPER_URL", "http://host.docker.internal:7862")
 
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", "/app/outputs"))
 COVERS_DIR = OUTPUTS_DIR / "covers"

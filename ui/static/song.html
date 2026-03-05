@@ -78,6 +78,26 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 .lyrics-body .section-tag:first-child{margin-top:0;}
 .no-lyrics{font-size:14px;color:rgba(255,255,255,.35);font-style:italic;}
 
+/* Quality badge */
+.quality-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 12px;border-radius:8px;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;}
+.quality-GREAT{background:rgba(34,197,94,.18);color:#22c55e;border:1px solid rgba(34,197,94,.3);}
+.quality-GOOD{background:rgba(59,130,246,.18);color:#3b82f6;border:1px solid rgba(59,130,246,.3);}
+.quality-FAIR{background:rgba(245,158,11,.18);color:#f59e0b;border:1px solid rgba(245,158,11,.3);}
+.quality-POOR{background:rgba(239,68,68,.18);color:#ef4444;border:1px solid rgba(239,68,68,.3);}
+.quality-NONE{background:rgba(107,114,128,.18);color:#9ca3af;border:1px solid rgba(107,114,128,.3);}
+
+/* Generation settings */
+.settings-section{border-radius:16px;padding:20px 24px;}
+.settings-heading{font-size:16px;font-weight:700;margin-bottom:14px;background:linear-gradient(135deg,#8b5cf6,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
+.setting-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 14px;}
+.setting-label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:rgba(255,255,255,.4);margin-bottom:4px;}
+.setting-value{font-size:15px;font-weight:600;color:rgba(255,255,255,.9);}
+
+/* Remix button */
+.action-btn.remix{color:#c4b5fd;border-color:rgba(139,92,246,.3);}
+.action-btn.remix:hover{background:rgba(139,92,246,.15);border-color:rgba(139,92,246,.4);}
+
 /* Loading */
 .loading{text-align:center;padding:80px 20px;color:rgba(255,255,255,.4);}
 .loading .spinner{width:40px;height:40px;border:3px solid rgba(139,92,246,.2);border-top-color:#8b5cf6;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
@@ -181,6 +201,7 @@ function renderSong() {
     +         '</div>'
     +       '</div>'
     +       '<div class="action-btns">'
+    +         '<button class="action-btn remix" onclick="remixTrack()">&#128260; Remix</button>'
     +         '<button class="action-btn" onclick="dlTrack()">&#8595; Download</button>'
     +         '<button class="action-btn delete" onclick="delTrack()">&#128465; Delete</button>'
     +       '</div>'
@@ -190,6 +211,7 @@ function renderSong() {
     +     '<h1 class="song-title">' + esc(track.title) + '</h1>'
     +     '<div class="meta-row">'
     +       (track.genre_hint ? '<span class="genre-tag">' + esc(track.genre_hint) + '</span>' : '')
+    +       (track.quality_rating ? '<span class="quality-badge quality-' + track.quality_rating + '">' + track.quality_rating + (track.quality_score != null ? ' ' + Math.round(track.quality_score * 100) + '%' : '') + '</span>' : '')
     +       '<span class="meta-item">' + dur + '</span>'
     +       '<span class="meta-dot">&#183;</span>'
     +       '<span class="meta-item">FLAC 48kHz</span>'
@@ -199,6 +221,7 @@ function renderSong() {
     +       '<span class="meta-item">' + dateStr + '</span>'
     +     '</div>'
     +     '<p class="song-desc">' + esc(track.description) + '</p>'
+    +     renderSettings()
     +     '<div class="lyrics-section glass">'
     +       '<div class="lyrics-heading">Lyrics</div>'
     +       '<div class="lyrics-body">' + lyricsHtml + '</div>'
@@ -233,6 +256,39 @@ function renderSong() {
   player.addEventListener('pause', () => {
     document.getElementById('play-btn').innerHTML = '&#9654;';
   });
+}
+
+function renderSettings() {
+  const items = [];
+  if (track.bpm) items.push({label:'BPM', value:track.bpm});
+  if (track.key) items.push({label:'Key', value:track.key});
+  items.push({label:'Creativity', value:(track.creativity != null ? track.creativity : 50) + '%'});
+  items.push({label:'Vocals', value:track.include_vocals === false ? 'No' : 'Yes'});
+  if (track.enhance_lyrics) items.push({label:'AI Polish', value:'On'});
+  if (track.seed) items.push({label:'Seed', value:track.seed});
+
+  if (items.length === 0) return '';
+
+  let html = '<div class="settings-section glass"><div class="settings-heading">Generation Settings</div><div class="settings-grid">';
+  for (const it of items) {
+    html += '<div class="setting-item"><div class="setting-label">' + esc(it.label) + '</div><div class="setting-value">' + esc(String(it.value)) + '</div></div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function remixTrack() {
+  const params = new URLSearchParams();
+  params.set('title', track.title);
+  params.set('description', track.description);
+  if (track.bpm) params.set('bpm', track.bpm);
+  if (track.key) params.set('key', track.key);
+  if (track.creativity != null) params.set('creativity', track.creativity);
+  if (track.include_vocals === false) params.set('include_vocals', 'false');
+  if (track.enhance_lyrics) params.set('enhance_lyrics', 'true');
+  if (track.lyrics && track.lyrics.trim() && track.lyrics.trim() !== '[Instrumental]') params.set('lyrics', track.lyrics);
+  if (track.seed) params.set('seed', track.seed);
+  window.location.href = '/?' + params.toString();
 }
 
 function formatLyrics(text) {

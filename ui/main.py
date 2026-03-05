@@ -16,6 +16,7 @@ import cover_art as cover_art_mod
 import gradio_client
 import lyrics_gen
 import history as history_mod
+import validation as validation_mod
 from config import ACESTEP_URL, AUDIO_DIR, COVERS_DIR, OUTPUTS_DIR
 from models import GenerateRequest, GenerateResponse, HistoryResponse, TrackMeta, Playlist, PlaylistResponse
 
@@ -114,10 +115,15 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
         created_at=datetime.now(timezone.utc).isoformat(),
         seed=result["seed"],
         lyrics=req.lyrics,
+        bpm=req.bpm,
+        key=req.key,
+        creativity=req.creativity,
+        include_vocals=req.include_vocals,
+        enhance_lyrics=req.enhance_lyrics,
     )
 
     await history_mod.append(track)
-    background_tasks.add_task(_bg_cover, track)
+    background_tasks.add_task(_bg_validate_and_cover, track)
 
     return GenerateResponse(track=track)
 
@@ -238,35 +244,88 @@ async def _run_generation(
             created_at=datetime.now(timezone.utc).isoformat(),
             seed=result_data["seed"],
             lyrics=req.lyrics,
+            bpm=req.bpm,
+            key=req.key,
+            creativity=req.creativity,
+            include_vocals=req.include_vocals,
+            enhance_lyrics=req.enhance_lyrics,
         )
 
         await history_mod.append(track)
         logger.info(f"Track saved: {track.title} ({filename})")
 
         await emit({"event": "track", "track": track.model_dump()})
-        await emit({"event": "step", "step": "cover", "state": "active"})
 
-        # Start cover art (also independent)
-        asyncio.create_task(_bg_cover(track))
-
-        await emit({"event": "done"})
+        # Validate + cover art (runs inline so SSE stream stays open)
+        await _bg_validate_and_cover(track, queue=queue)
 
     except Exception as e:
         logger.error("Generation task fatal error: %s", e)
         await emit({"event": "error", "message": str(e)})
+        await emit(None)
     finally:
-        await emit(None)  # sentinel to close SSE stream
         _jobs.pop(job_id, None)
 
 
-async def _bg_cover(track: TrackMeta) -> None:
-    try:
-        cover_file = await cover_art_mod.generate_cover(track)
-        if cover_file:
-            await history_mod.update_cover(track.id, cover_file)
-            logger.info(f"Cover art saved: {cover_file}")
-    except Exception as e:
-        logger.error(f"Background cover art failed for {track.id}: {e}")
+async def _bg_validate_and_cover(track: TrackMeta, queue: asyncio.Queue | None = None) -> None:
+    """Validate vocal quality (if applicable), then generate cover art conditionally."""
+    async def emit(evt: dict):
+        if queue:
+            try:
+                await queue.put(evt)
+            except Exception:
+                pass
+
+    is_instrumental = (
+        not track.lyrics
+        or not track.lyrics.strip()
+        or track.lyrics.strip() == "[Instrumental]"
+    )
+
+    # Step 1: Whisper validation (vocal tracks only)
+    quality_rating = None
+    if not is_instrumental:
+        await emit({"event": "step", "step": "validate", "state": "active"})
+        try:
+            result = await validation_mod.validate_track(track.filename)
+            if result:
+                quality_rating = result["quality_rating"]
+                await history_mod.update_quality(
+                    track.id, result["quality_score"], quality_rating,
+                )
+                await emit({
+                    "event": "quality",
+                    "rating": quality_rating,
+                    "score": result["quality_score"],
+                })
+                logger.info(f"Quality validated: {track.title} → {quality_rating}")
+        except Exception as e:
+            logger.warning(f"Validation failed for {track.id}: {e}")
+        await emit({"event": "step", "step": "validate", "state": "done"})
+
+    # Step 2: Conditional cover art
+    # Instrumental → always AI cover
+    # Vocal GOOD/GREAT → AI cover
+    # Vocal FAIR/POOR/NONE/unavailable → gradient fallback only
+    should_generate_cover = is_instrumental or quality_rating in ("GOOD", "GREAT")
+
+    await emit({"event": "step", "step": "cover", "state": "active"})
+    if should_generate_cover:
+        try:
+            cover_file = await cover_art_mod.generate_cover(track)
+            if cover_file:
+                await history_mod.update_cover(track.id, cover_file)
+                logger.info(f"Cover art saved: {cover_file}")
+        except Exception as e:
+            logger.error(f"Cover art failed for {track.id}: {e}")
+    else:
+        logger.info(
+            f"Skipping AI cover for {track.title} (quality: {quality_rating}) — using gradient"
+        )
+    await emit({"event": "step", "step": "cover", "state": "done"})
+
+    await emit({"event": "done"})
+    await emit(None)  # sentinel
 
 
 @app.get("/history", response_model=HistoryResponse)

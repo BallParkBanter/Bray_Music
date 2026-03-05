@@ -575,8 +575,44 @@ async function doSimpleGen() {
   }
 }
 
+function prefillFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.size === 0) return;
+
+  // Switch to Custom mode
+  setMode('custom');
+
+  // Open advanced settings
+  const advBody = document.getElementById('adv-body');
+  if (advBody) advBody.style.display = 'block';
+
+  if (params.get('title')) document.getElementById('song-title').value = params.get('title');
+  if (params.get('description')) document.getElementById('ta-desc').value = params.get('description');
+  if (params.get('lyrics')) document.getElementById('ta-lyrics').value = params.get('lyrics');
+  if (params.get('bpm')) document.getElementById('bpm').value = params.get('bpm');
+  if (params.get('key')) document.getElementById('key-input').value = params.get('key');
+  if (params.get('seed')) document.getElementById('seed').value = params.get('seed');
+  if (params.get('creativity')) {
+    const cr = document.getElementById('creativity-range');
+    cr.value = params.get('creativity');
+    document.getElementById('crv').textContent = params.get('creativity') + '%';
+  }
+  if (params.get('include_vocals') === 'false') {
+    const vsw = document.getElementById('vsw');
+    if (vsw && vsw.classList.contains('on')) togVocals();
+  }
+  if (params.get('enhance_lyrics') === 'true') {
+    const esw = document.getElementById('esw');
+    if (esw && !esw.classList.contains('on')) esw.classList.add('on');
+  }
+
+  // Clean URL
+  window.history.replaceState({}, '', '/');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadHistory();
+  prefillFromUrl();
 
   document.getElementById('play-btn').addEventListener('click', togglePlay);
   document.getElementById('prev-btn').addEventListener('click', prevTrack);
@@ -771,6 +807,7 @@ const STEP_MAP = {
   generate: ['gs-lm', 'gs-diffuse'],
   decode: 'gs-decode',
   save: 'gs-save',
+  validate: 'gs-validate',
   cover: 'gs-cover',
 };
 
@@ -1046,7 +1083,8 @@ function esc(s) {
       <div class="gen-step" id="gs-diffuse"><div class="gen-step-icon">4</div><span>Diffusion model generating audio...</span></div>
       <div class="gen-step" id="gs-decode"><div class="gen-step-icon">5</div><span>Decoding & normalizing FLAC...</span></div>
       <div class="gen-step" id="gs-save"><div class="gen-step-icon">6</div><span>Saving to your library...</span></div>
-      <div class="gen-step" id="gs-cover"><div class="gen-step-icon">7</div><span>Cover art generating (background)...</span></div>
+      <div class="gen-step" id="gs-validate"><div class="gen-step-icon">7</div><span>Validating vocal quality...</span></div>
+      <div class="gen-step" id="gs-cover"><div class="gen-step-icon">8</div><span>Cover art generating (background)...</span></div>
     </div>
     <div class="gen-elapsed" id="gen-elapsed">Elapsed: 0s</div>
     <button class="gen-cancel" id="gen-cancel" onclick="closeGenModal()">Close</button>
