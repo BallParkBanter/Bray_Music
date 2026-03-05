@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bray Music Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Ubuntu',sans-serif;background:#080614;color:#fff;min-height:100vh;position:relative;}
+.blob{position:fixed;border-radius:50%;filter:blur(90px);opacity:.3;animation:bfloat 9s ease-in-out infinite;pointer-events:none;}
+.b1{width:520px;height:520px;background:#6d28d9;top:-180px;left:-80px;}
+.b2{width:420px;height:420px;background:#0d9488;bottom:-120px;right:60px;animation-delay:-4s;}
+.b3{width:360px;height:360px;background:#db2777;top:200px;right:-60px;animation-delay:-6s;}
+@keyframes bfloat{0%,100%{transform:translate(0,0) scale(1);}33%{transform:translate(25px,-25px) scale(1.06);}66%{transform:translate(-18px,18px) scale(.94);}}
+
+.glass{background:rgba(255,255,255,.055);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.11);border-radius:20px;}
+
+/* Header */
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;position:relative;z-index:1;}
+.logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;text-decoration:none;color:#fff;}
+.logo-icon{width:33px;height:33px;background:linear-gradient(135deg,#8b5cf6,#ec4899);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;}
+.nav-links{display:flex;gap:12px;}
+.nav-links a{color:#fff;text-decoration:none;font-size:15px;font-weight:600;padding:10px 22px;border-radius:12px;background:linear-gradient(135deg,rgba(139,92,246,.3),rgba(236,72,153,.2));border:1px solid rgba(139,92,246,.4);transition:all .25s;letter-spacing:.3px;}
+.nav-links a:hover{background:linear-gradient(135deg,rgba(139,92,246,.5),rgba(236,72,153,.35));transform:translateY(-1px);box-shadow:0 4px 15px rgba(139,92,246,.3);}
+
+/* Main content */
+.main{padding:24px;position:relative;z-index:1;max-width:1100px;margin:0 auto;}
+
+/* Back link */
+.back-link{display:inline-flex;align-items:center;gap:6px;color:rgba(255,255,255,.6);text-decoration:none;font-size:14px;margin-bottom:20px;transition:color .2s;}
+.back-link:hover{color:#fff;}
+
+/* Song layout */
+.song-layout{display:grid;grid-template-columns:380px 1fr;gap:32px;align-items:start;}
+
+/* Cover section */
+.cover-section{display:flex;flex-direction:column;gap:16px;}
+.cover-art{width:100%;aspect-ratio:1;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:96px;box-shadow:0 12px 40px rgba(0,0,0,.5);}
+.cover-art img{width:100%;height:100%;object-fit:cover;}
+
+/* Player controls */
+.player-section{border-radius:16px;padding:16px;}
+.player-controls{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.play-btn{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#6d28d9,#ec4899);border:none;color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(139,92,246,.4);transition:transform .15s;}
+.play-btn:hover{transform:scale(1.06);}
+.seek-area{flex:1;display:flex;align-items:center;gap:10px;}
+.seek-time{font-size:12px;color:rgba(255,255,255,.5);min-width:40px;text-align:center;}
+.seek-range{flex:1;-webkit-appearance:none;appearance:none;height:6px;background:rgba(255,255,255,.12);border-radius:3px;outline:none;cursor:pointer;margin:0;}
+.seek-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(139,92,246,.5);cursor:grab;border:none;margin-top:-4px;}
+.seek-range::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(139,92,246,.5);cursor:grab;border:none;}
+.seek-range::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:transparent;}
+.seek-range::-moz-range-track{height:6px;border-radius:3px;background:rgba(255,255,255,.12);}
+.seek-range::-moz-range-progress{height:6px;border-radius:3px;background:linear-gradient(90deg,#8b5cf6,#ec4899);}
+
+.action-btns{display:flex;gap:8px;}
+.action-btn{padding:10px 20px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-family:'Ubuntu',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px;}
+.action-btn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);}
+.action-btn.delete{color:#fca5a5;}
+.action-btn.delete:hover{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.3);}
+
+/* Info section */
+.info-section{display:flex;flex-direction:column;gap:18px;}
+.song-title{font-size:32px;font-weight:700;line-height:1.2;word-break:break-word;}
+.meta-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.genre-tag{background:rgba(139,92,246,.18);border:1px solid rgba(139,92,246,.3);border-radius:8px;padding:4px 14px;font-size:13px;color:rgba(139,92,246,.95);font-weight:600;}
+.meta-item{font-size:13px;color:rgba(255,255,255,.5);}
+.meta-dot{color:rgba(255,255,255,.2);}
+
+.song-desc{font-size:15px;color:rgba(255,255,255,.7);line-height:1.6;}
+
+/* Lyrics */
+.lyrics-section{border-radius:16px;padding:20px 24px;}
+.lyrics-heading{font-size:16px;font-weight:700;margin-bottom:14px;background:linear-gradient(135deg,#8b5cf6,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.lyrics-body{font-size:14px;line-height:1.8;color:rgba(255,255,255,.8);white-space:pre-wrap;word-break:break-word;}
+.lyrics-body .section-tag{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:rgba(139,92,246,.7);margin-top:18px;margin-bottom:4px;}
+.lyrics-body .section-tag:first-child{margin-top:0;}
+.no-lyrics{font-size:14px;color:rgba(255,255,255,.35);font-style:italic;}
+
+/* Loading */
+.loading{text-align:center;padding:80px 20px;color:rgba(255,255,255,.4);}
+.loading .spinner{width:40px;height:40px;border:3px solid rgba(139,92,246,.2);border-top-color:#8b5cf6;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* Mobile */
+@media (max-width: 900px) {
+  header{flex-wrap:wrap;gap:8px;padding:10px 14px;border-radius:14px;}
+  .logo{font-size:15px;}
+  .logo-icon{width:28px;height:28px;font-size:17px;}
+  .nav-links a{font-size:13px;padding:8px 16px;}
+
+  .main{padding:12px 14px;}
+  .song-layout{grid-template-columns:1fr;gap:20px;}
+  .cover-art{max-width:320px;margin:0 auto;}
+  .song-title{font-size:24px;}
+  .action-btns{flex-wrap:wrap;}
+}
+</style>
+</head>
+<body>
+
+<audio id="audio-player" preload="none"></audio>
+
+<div class="blob b1"></div>
+<div class="blob b2"></div>
+<div class="blob b3"></div>
+
+<header class="glass">
+  <a class="logo" href="/"><div class="logo-icon">🎵</div> Bray Music Studio</a>
+  <div class="nav-links">
+    <a href="/">Create</a>
+    <a href="/library">Library</a>
+  </div>
+</header>
+
+<div class="main" id="main-content">
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Loading song...</p>
+  </div>
+</div>
+
+<script>
+const player = document.getElementById('audio-player');
+let track = null;
+let userSeeking = false;
+
+document.addEventListener('DOMContentLoaded', loadSong);
+
+async function loadSong() {
+  const path = window.location.pathname;
+  const trackId = path.split('/song/')[1];
+  if (!trackId) { showError('No track ID'); return; }
+
+  try {
+    const resp = await fetch('/track/' + trackId);
+    if (!resp.ok) { showError('Song not found'); return; }
+    track = await resp.json();
+    document.title = track.title + ' — Bray Music Studio';
+    renderSong();
+  } catch(e) {
+    showError('Failed to load song');
+    console.error(e);
+  }
+}
+
+function renderSong() {
+  const main = document.getElementById('main-content');
+
+  const mins = Math.floor(track.duration_sec / 60);
+  const secs = Math.floor(track.duration_sec % 60);
+  const dur = mins + ':' + String(secs).padStart(2, '0');
+
+  const date = new Date(track.created_at);
+  const dateStr = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const coverBg = track.cover_art
+    ? 'background:none;'
+    : 'background:' + (track.cover_gradient || 'linear-gradient(135deg,#6d28d9,#ec4899)') + ';';
+  const coverInner = track.cover_art
+    ? '<img src="/cover/' + track.cover_art + '" alt="Cover art">'
+    : '<span>' + (track.emoji || '🎵') + '</span>';
+
+  const lyricsHtml = track.lyrics && track.lyrics.trim()
+    ? formatLyrics(track.lyrics)
+    : '<span class="no-lyrics">No lyrics — instrumental track</span>';
+
+  main.innerHTML = ''
+    + '<a class="back-link" href="/library">&#8592; Back to Library</a>'
+    + '<div class="song-layout">'
+    +   '<div class="cover-section">'
+    +     '<div class="cover-art" style="' + coverBg + '">' + coverInner + '</div>'
+    +     '<div class="player-section glass">'
+    +       '<div class="player-controls">'
+    +         '<button class="play-btn" id="play-btn" onclick="togglePlay()">&#9654;</button>'
+    +         '<div class="seek-area">'
+    +           '<span class="seek-time" id="time-cur">0:00</span>'
+    +           '<input type="range" class="seek-range" id="seek-range" min="0" max="1000" value="0">'
+    +           '<span class="seek-time" id="time-tot">' + dur + '</span>'
+    +         '</div>'
+    +       '</div>'
+    +       '<div class="action-btns">'
+    +         '<button class="action-btn" onclick="dlTrack()">&#8595; Download</button>'
+    +         '<button class="action-btn delete" onclick="delTrack()">&#128465; Delete</button>'
+    +       '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="info-section">'
+    +     '<h1 class="song-title">' + esc(track.title) + '</h1>'
+    +     '<div class="meta-row">'
+    +       (track.genre_hint ? '<span class="genre-tag">' + esc(track.genre_hint) + '</span>' : '')
+    +       '<span class="meta-item">' + dur + '</span>'
+    +       '<span class="meta-dot">&#183;</span>'
+    +       '<span class="meta-item">FLAC 48kHz</span>'
+    +       '<span class="meta-dot">&#183;</span>'
+    +       '<span class="meta-item">seed ' + track.seed + '</span>'
+    +       '<span class="meta-dot">&#183;</span>'
+    +       '<span class="meta-item">' + dateStr + '</span>'
+    +     '</div>'
+    +     '<p class="song-desc">' + esc(track.description) + '</p>'
+    +     '<div class="lyrics-section glass">'
+    +       '<div class="lyrics-heading">Lyrics</div>'
+    +       '<div class="lyrics-body">' + lyricsHtml + '</div>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+
+  // Set up audio
+  player.src = '/audio/' + track.filename;
+
+  // Set up seek bar events
+  const seekRange = document.getElementById('seek-range');
+  seekRange.addEventListener('mousedown', () => { userSeeking = true; });
+  seekRange.addEventListener('touchstart', () => { userSeeking = true; }, { passive: true });
+  seekRange.addEventListener('input', () => {
+    if (isFinite(player.duration)) {
+      player.currentTime = (seekRange.value / 1000) * player.duration;
+    }
+    updateSeekFill(seekRange);
+  });
+  seekRange.addEventListener('change', () => { userSeeking = false; });
+  seekRange.addEventListener('mouseup', () => { userSeeking = false; });
+  seekRange.addEventListener('touchend', () => { userSeeking = false; });
+
+  player.addEventListener('timeupdate', updatePlayer);
+  player.addEventListener('ended', () => {
+    document.getElementById('play-btn').innerHTML = '&#9654;';
+  });
+  player.addEventListener('play', () => {
+    document.getElementById('play-btn').innerHTML = '&#9208;';
+  });
+  player.addEventListener('pause', () => {
+    document.getElementById('play-btn').innerHTML = '&#9654;';
+  });
+}
+
+function formatLyrics(text) {
+  const lines = text.split('\n');
+  let html = '';
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      html += '\n';
+      continue;
+    }
+    // Match section tags like [Verse 1], [Chorus], [Bridge], [Intro], [Outro], etc.
+    const match = trimmed.match(/^\[([^\]]+)\]$/);
+    if (match) {
+      html += '<span class="section-tag">' + esc(match[1]) + '</span>\n';
+    } else {
+      html += esc(trimmed) + '\n';
+    }
+  }
+  return html;
+}
+
+function togglePlay() {
+  if (!player.src || player.src === window.location.href) return;
+  if (player.paused) {
+    player.play().catch(e => console.error(e));
+  } else {
+    player.pause();
+  }
+}
+
+function updateSeekFill(rangeEl) {
+  const pct = (rangeEl.value / rangeEl.max) * 100;
+  rangeEl.style.background = 'linear-gradient(90deg, #8b5cf6 0%, #ec4899 ' + pct + '%, rgba(255,255,255,.12) ' + pct + '%)';
+}
+
+function updatePlayer() {
+  document.getElementById('time-cur').textContent = fmtTime(player.currentTime);
+  if (isFinite(player.duration)) {
+    document.getElementById('time-tot').textContent = fmtTime(player.duration);
+  }
+  const sr = document.getElementById('seek-range');
+  if (!userSeeking && isFinite(player.duration) && player.duration > 0) {
+    sr.value = Math.round((player.currentTime / player.duration) * 1000);
+  }
+  updateSeekFill(sr);
+}
+
+function fmtTime(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
+}
+
+function dlTrack() {
+  const a = document.createElement('a');
+  a.href = '/audio/' + track.filename;
+  a.download = track.title + '.flac';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function delTrack() {
+  if (!confirm('Delete "' + track.title + '" permanently?')) return;
+  try {
+    const resp = await fetch('/track/' + track.id, { method: 'DELETE' });
+    if (resp.ok) {
+      window.location.href = '/library';
+    } else {
+      alert('Failed to delete');
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+function showError(msg) {
+  document.getElementById('main-content').innerHTML =
+    '<a class="back-link" href="/library">&#8592; Back to Library</a>'
+    + '<div class="loading"><p>' + esc(msg) + '</p></div>';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

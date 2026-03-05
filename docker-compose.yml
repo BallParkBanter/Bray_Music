@@ -1,0 +1,17 @@
+services:
+  ui:
+    build: ./ui
+    image: bray-music-ui:latest
+    container_name: bray-music-ui
+    restart: unless-stopped
+    ports:
+      - "7861:7861"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./outputs:/app/outputs
+    environment:
+      - ACESTEP_URL=http://host.docker.internal:7860
+      - NEXTCLOUD_URL=https://nextcloud.services.bray.house
+      - NEXTCLOUD_USER=bobray
+      - NEXTCLOUD_PASS=${NEXTCLOUD_PASS}
