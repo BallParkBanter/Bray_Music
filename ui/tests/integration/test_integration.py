@@ -57,7 +57,7 @@ async def test_cover_art_appears_async():
                 assert cover_resp.status_code == 200
                 return  # Success
 
-        pytest.skip("Cover art did not appear within timeout — Nextcloud/Visionatrix may be unavailable")
+        pytest.skip("Cover art did not appear within timeout — cover-art-service may be unavailable")
 
 
 @pytest.mark.integration

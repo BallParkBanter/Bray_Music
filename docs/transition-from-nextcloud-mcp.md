@@ -25,7 +25,7 @@ On 2026-03-05, everything was reorganized into its own project.
 - **Live URL:** https://music.apps.bray.house (unchanged)
 - **NPM proxy host 37** (unchanged)
 - **ACE-Step native install** at `/home/bobray/ACE-Step-1.5/` (unchanged)
-- **Nextcloud integration** for cover art still uses nextcloud-mcp server APIs
+- **Cover art** now uses local Juggernaut XL service on ROG-STRIX (replaced Nextcloud/Visionatrix 2026-03-05)
 
 ## New project structure
 

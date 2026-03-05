@@ -12,8 +12,8 @@ async def test_pillow_fallback_creates_valid_png(patch_outputs, sample_track):
     import cover_art
     import config
 
-    # Ensure Nextcloud fails → falls back to Pillow
-    with patch.object(cover_art, "_nextcloud_cover", side_effect=Exception("disabled")):
+    # Ensure local cover service fails → falls back to Pillow
+    with patch.object(cover_art, "_local_cover", side_effect=Exception("disabled")):
         result = await cover_art.generate_cover(sample_track)
 
     assert result == f"{sample_track.id}.png"
@@ -27,27 +27,15 @@ async def test_pillow_fallback_creates_valid_png(patch_outputs, sample_track):
 
 
 @pytest.mark.asyncio
-async def test_falls_back_on_nextcloud_error(patch_outputs, sample_track):
+async def test_falls_back_on_service_error(patch_outputs, sample_track):
     import cover_art
     import config
 
-    with patch.object(cover_art, "_nextcloud_cover", side_effect=RuntimeError("500")):
+    with patch.object(cover_art, "_local_cover", side_effect=RuntimeError("500")):
         result = await cover_art.generate_cover(sample_track)
 
     assert result is not None
     assert (config.COVERS_DIR / result).exists()
-
-
-@pytest.mark.asyncio
-async def test_nextcloud_pass_not_configured_falls_back(patch_outputs, sample_track, monkeypatch):
-    import cover_art
-    import config
-
-    monkeypatch.setattr(cover_art, "NEXTCLOUD_PASS", "")
-    result = await cover_art.generate_cover(sample_track)
-
-    # Should still produce a cover via Pillow
-    assert result is not None
 
 
 @pytest.mark.asyncio
@@ -63,7 +51,7 @@ async def test_pillow_fallback_gradient_varies_by_id(patch_outputs):
             created_at="2026-03-03T10:00:00+00:00",
         )
 
-    with patch.object(cover_art, "_nextcloud_cover", side_effect=Exception("skip")):
+    with patch.object(cover_art, "_local_cover", side_effect=Exception("skip")):
         t1, t2 = make_track(1), make_track(9999)
         await cover_art.generate_cover(t1)
         await cover_art.generate_cover(t2)

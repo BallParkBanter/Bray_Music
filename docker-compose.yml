@@ -12,7 +12,5 @@ services:
       - ./outputs:/app/outputs
     environment:
       - ACESTEP_URL=http://host.docker.internal:7860
-      - NEXTCLOUD_URL=https://nextcloud.services.bray.house
-      - NEXTCLOUD_USER=bobray
-      - NEXTCLOUD_PASS=${NEXTCLOUD_PASS}
       - WHISPER_URL=http://host.docker.internal:7862
+      - COVER_ART_URL=http://host.docker.internal:7863

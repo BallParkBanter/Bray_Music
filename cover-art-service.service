@@ -1,0 +1,14 @@
+[Unit]
+Description=Cover Art Service for Bray Music Studio
+After=network.target
+
+[Service]
+Type=simple
+User=bobray
+WorkingDirectory=/home/bobray/ace-step
+ExecStart=/home/bobray/ACE-Step-1.5/.venv/bin/uvicorn cover_art_service:app --host 0.0.0.0 --port 7863
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
