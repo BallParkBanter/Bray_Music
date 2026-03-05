@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bray Music Studio — Analog Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Ubuntu',sans-serif;background:#141416;color:#ccc;height:100vh;overflow:hidden;}
+
+/* Brushed metal panel base */
+.panel{
+  background:linear-gradient(160deg,#242428 0%,#1c1c20 40%,#1e1e22 60%,#222226 100%);
+  border:1px solid #333;
+  border-top-color:#3a3a3e;
+  border-left-color:#2e2e32;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 2px 8px rgba(0,0,0,.6);
+  border-radius:8px;
+}
+
+/* Layout */
+.app{display:grid;grid-template-columns:260px 1fr 300px;grid-template-rows:auto 1fr;height:100vh;gap:8px;padding:8px;background:#0d0d0f;}
+
+/* Header — the "nameplate" */
+header{
+  grid-column:1/-1;
+  background:linear-gradient(180deg,#2a2a2e 0%,#1e1e22 100%);
+  border:1px solid #333;
+  border-top-color:#444;
+  border-radius:8px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 18px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 3px 10px rgba(0,0,0,.7);
+}
+
+/* Nameplate text */
+.nameplate{display:flex;align-items:center;gap:14px;}
+.nameplate-text{font-family:'Ubuntu Mono',monospace;font-size:15px;font-weight:700;color:#ffaa00;text-shadow:0 0 12px rgba(255,170,0,.5);letter-spacing:.1em;text-transform:uppercase;}
+.nameplate-sub{font-family:'Ubuntu Mono',monospace;font-size:10px;color:rgba(255,170,0,.45);letter-spacing:.2em;margin-top:2px;}
+.model-badge{font-family:'Ubuntu Mono',monospace;font-size:10px;color:#888;letter-spacing:.08em;background:#111;padding:4px 10px;border-radius:4px;border:1px solid #333;}
+
+/* LED status row */
+.leds{display:flex;align-items:center;gap:14px;}
+.led-group{display:flex;align-items:center;gap:6px;font-family:'Ubuntu Mono',monospace;font-size:10px;color:#666;letter-spacing:.06em;}
+.led{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.led.green{background:#00ff44;box-shadow:0 0 8px #00ff44,0 0 3px #00ff44;}
+.led.amber{background:#ffaa00;box-shadow:0 0 8px #ffaa00,0 0 3px #ffaa00;}
+.led.off{background:#333;}
+
+/* Left column */
+.left{overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;}
+.left::-webkit-scrollbar{width:3px;}.left::-webkit-scrollbar-thumb{background:#333;}
+
+/* Section header — engraved label style */
+.sec{font-family:'Ubuntu Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#666;padding-bottom:6px;border-bottom:1px solid #2a2a2a;margin-bottom:9px;}
+
+/* Hardware button — preset buttons */
+.hw-btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.hw-btn{
+  background:linear-gradient(180deg,#2e2e32 0%,#242428 100%);
+  border:1px solid #3a3a3e;
+  border-bottom-color:#111;
+  box-shadow:0 3px 6px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);
+  color:#aaa;
+  padding:9px 6px;
+  border-radius:5px;
+  cursor:pointer;
+  font-family:'Ubuntu',sans-serif;
+  font-size:11px;
+  font-weight:500;
+  text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  transition:all .1s;
+}
+.hw-btn .em{font-size:16px;}
+.hw-btn:hover{border-top-color:#555;color:#ddd;}
+.hw-btn.on{
+  background:linear-gradient(180deg,#1a2a1a 0%,#142014 100%);
+  border-color:#2a4a2a;
+  border-bottom-color:#0a0a0a;
+  color:#00ff44;
+  box-shadow:0 1px 4px rgba(0,0,0,.7),inset 0 1px 0 rgba(0,255,68,.05),0 0 12px rgba(0,255,68,.08);
+  text-shadow:0 0 8px rgba(0,255,68,.5);
+}
+.hw-btn:active{
+  box-shadow:0 1px 2px rgba(0,0,0,.8),inset 0 1px 3px rgba(0,0,0,.4);
+  transform:translateY(1px);
+}
+
+/* Toggle switch — physical look */
+.sw-row{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:linear-gradient(180deg,#1e1e22,#1a1a1e);border:1px solid #333;border-radius:5px;font-size:12px;color:#999;cursor:pointer;}
+.sw-track{width:36px;height:18px;background:#111;border:1px solid #2a2a2a;border-radius:3px;position:relative;box-shadow:inset 0 2px 4px rgba(0,0,0,.6);}
+.sw-track.on{background:#0a2010;border-color:#1a4020;}
+.sw-track::after{content:'';position:absolute;width:14px;height:12px;background:linear-gradient(180deg,#aaa,#888);border-radius:2px;top:2px;left:2px;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.5);}
+.sw-track.on::after{transform:translateX(18px);background:linear-gradient(180deg,#00ee44,#00cc33);box-shadow:0 0 6px rgba(0,238,68,.4);}
+
+/* VU Meter */
+.vu-panel{padding:10px;background:#0d0d0f;border:1px solid #2a2a2a;border-radius:5px;}
+.vu-label{font-family:'Ubuntu Mono',monospace;font-size:9px;color:#555;letter-spacing:.15em;text-transform:uppercase;text-align:center;margin-bottom:8px;}
+.vu-meters{display:flex;gap:8px;align-items:flex-end;height:52px;justify-content:center;}
+.vu-chan{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.vu-chan-label{font-family:'Ubuntu Mono',monospace;font-size:8px;color:#555;letter-spacing:.1em;}
+.vu-bars{display:flex;gap:2px;align-items:flex-end;height:44px;}
+.vu-bar{width:6px;border-radius:1px;animation:vua 1.4s ease-in-out infinite;}
+.vu-bar:nth-child(1){background:#00cc33;height:8px;animation-delay:.1s;}
+.vu-bar:nth-child(2){background:#00cc33;height:10px;animation-delay:.2s;}
+.vu-bar:nth-child(3){background:#00cc33;height:14px;animation-delay:.05s;}
+.vu-bar:nth-child(4){background:#88cc00;height:18px;animation-delay:.15s;}
+.vu-bar:nth-child(5){background:#88cc00;height:22px;animation-delay:.25s;}
+.vu-bar:nth-child(6){background:#ffaa00;height:28px;animation-delay:.1s;}
+.vu-bar:nth-child(7){background:#ffaa00;height:34px;animation-delay:.3s;}
+.vu-bar:nth-child(8){background:#ff4400;height:38px;animation-delay:.18s;}
+.vu-r1{animation-delay:.08s!important;}.vu-r2{animation-delay:.18s!important;}.vu-r3{animation-delay:.28s!important;}
+.vu-r4{animation-delay:.12s!important;}.vu-r5{animation-delay:.22s!important;}.vu-r6{animation-delay:.05s!important;}
+.vu-r7{animation-delay:.35s!important;}.vu-r8{animation-delay:.25s!important;}
+@keyframes vua{0%,100%{transform:scaleY(.4);}50%{transform:scaleY(1);}}
+
+/* Fader (duration) */
+.fader-panel{padding:10px 12px;background:#0d0d0f;border:1px solid #2a2a2a;border-radius:5px;}
+.fader-display{font-family:'Ubuntu Mono',monospace;font-size:24px;color:#ffaa00;text-shadow:0 0 10px rgba(255,170,0,.5);text-align:center;line-height:1;margin-bottom:6px;}
+.fader-unit{font-size:11px;color:rgba(255,170,0,.5);}
+input.fader[type=range]{width:100%;-webkit-appearance:none;height:5px;background:linear-gradient(90deg,#001800,#003000);border:1px solid #2a2a2a;border-radius:2px;outline:none;cursor:pointer;box-shadow:inset 0 2px 3px rgba(0,0,0,.6);}
+input.fader[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:22px;background:linear-gradient(180deg,#aaa,#777);border-radius:2px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.2);}
+.fader-marks{display:flex;justify-content:space-between;font-family:'Ubuntu Mono',monospace;font-size:9px;color:#444;margin-top:3px;}
+
+/* Adv section */
+.adv-hw{padding:8px 10px;background:#111;border:1px solid #2a2a2a;border-radius:4px;cursor:pointer;font-family:'Ubuntu Mono',monospace;font-size:10px;color:#666;letter-spacing:.08em;display:flex;align-items:center;justify-content:space-between;}
+.adv-hw:hover{color:#999;}
+.adv-inputs{display:none;margin-top:8px;display:flex;flex-direction:column;gap:6px;}
+.adv-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+
+/* Center */
+.center{overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;}
+.center::-webkit-scrollbar{width:3px;}.center::-webkit-scrollbar-thumb{background:#333;}
+
+/* Phosphor display — song title */
+.phosphor-display{
+  background:#050a05;
+  border:2px solid #1a2a1a;
+  border-radius:5px;
+  padding:12px 14px;
+  box-shadow:inset 0 0 20px rgba(0,0,0,.8),0 0 30px rgba(0,0,0,.3);
+  position:relative;
+}
+.phosphor-display::before{content:'TITLE';position:absolute;top:-8px;left:12px;background:#141416;padding:0 6px;font-family:'Ubuntu Mono',monospace;font-size:9px;color:#555;letter-spacing:.15em;}
+.ph-input{width:100%;background:transparent;border:none;color:#00ff44;font-family:'Ubuntu Mono',monospace;font-size:18px;font-weight:700;text-shadow:0 0 12px rgba(0,255,68,.6);outline:none;caret-color:#00ff44;}
+.ph-input::placeholder{color:rgba(0,255,68,.2);}
+
+/* Multi-line text areas */
+.field-wrap{position:relative;}
+.field-label{font-family:'Ubuntu Mono',monospace;font-size:9px;color:#555;letter-spacing:.18em;text-transform:uppercase;margin-bottom:5px;display:flex;align-items:center;gap:6px;}
+.field-label::after{content:'';flex:1;height:1px;background:#222;}
+textarea.hw-ta,input.hw-in{
+  width:100%;
+  background:#0d0e0d;
+  border:1px solid #2a2a2a;
+  border-top-color:#1a1a1a;
+  border-radius:4px;
+  color:#bbb;
+  font-family:'Ubuntu',sans-serif;
+  font-size:13px;
+  padding:10px;
+  resize:none;
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.5);
+  transition:border-color .2s;
+}
+textarea.hw-ta:focus,input.hw-in:focus{outline:none;border-color:#2a4a2a;box-shadow:inset 0 2px 4px rgba(0,0,0,.5),0 0 0 1px rgba(0,255,68,.06);}
+#ta-desc{height:82px;}
+#ta-lyrics{height:118px;}
+
+/* Lyric enhancer */
+.enhance-strip{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0d0d0f;border:1px solid #2a2a2a;border-radius:4px;}
+.enhance-strip span{font-family:'Ubuntu Mono',monospace;font-size:10px;color:#666;letter-spacing:.06em;}
+
+/* Generate button — big chunky hardware button */
+.gen-btn{
+  width:100%;padding:16px;
+  background:linear-gradient(180deg,#1a3a1a 0%,#0d2a0d 100%);
+  border:2px solid #2a5a2a;
+  border-bottom:3px solid #051505;
+  border-radius:6px;
+  color:#00ff44;
+  font-family:'Ubuntu Mono',monospace;
+  font-size:15px;
+  font-weight:700;
+  cursor:pointer;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  text-shadow:0 0 14px rgba(0,255,68,.6);
+  box-shadow:0 4px 10px rgba(0,0,0,.6),inset 0 1px 0 rgba(0,255,68,.06);
+  transition:all .1s;
+}
+.gen-btn:hover{background:linear-gradient(180deg,#1e4a1e 0%,#0f2e0f 100%);box-shadow:0 4px 10px rgba(0,0,0,.6),inset 0 1px 0 rgba(0,255,68,.1),0 0 20px rgba(0,255,68,.08);}
+.gen-btn:active{transform:translateY(2px);box-shadow:0 1px 4px rgba(0,0,0,.8),inset 0 2px 4px rgba(0,0,0,.4);border-bottom-width:1px;}
+
+/* Progress */
+.prog-wrap{height:5px;background:#0a0a0a;border:1px solid #222;border-radius:2px;overflow:hidden;display:none;}
+.prog-bar{height:100%;background:#00ff44;box-shadow:0 0 8px #00ff44;width:0%;transition:width .3s;}
+.status-txt{font-family:'Ubuntu Mono',monospace;font-size:11px;color:#555;text-align:center;display:none;margin-top:4px;}
+
+/* Right */
+.right{overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;}
+.right::-webkit-scrollbar{width:3px;}.right::-webkit-scrollbar-thumb{background:#333;}
+
+/* Tape deck — now playing */
+.tape-deck{
+  background:#0d0d0f;
+  border:2px solid #2a2a2e;
+  border-radius:8px;
+  padding:14px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  box-shadow:inset 0 0 30px rgba(0,0,0,.5);
+}
+.reel-display{
+  width:100%;
+  background:#050a05;
+  border:1px solid #1a2a1a;
+  border-radius:5px;
+  padding:10px 12px;
+  text-align:center;
+}
+.reel-title{font-family:'Ubuntu Mono',monospace;font-size:13px;color:#00ff44;text-shadow:0 0 10px rgba(0,255,68,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.reel-meta{font-family:'Ubuntu Mono',monospace;font-size:10px;color:rgba(0,255,68,.4);margin-top:4px;}
+
+/* Tape reels */
+.reels{display:flex;gap:20px;align-items:center;justify-content:center;}
+.reel{width:54px;height:54px;border-radius:50%;background:radial-gradient(circle,#333 30%,#1a1a1a 31%,#222 50%,#1a1a1a 51%,#2a2a2a 70%,#111 71%);border:2px solid #3a3a3e;box-shadow:inset 0 0 10px rgba(0,0,0,.8),0 2px 6px rgba(0,0,0,.6);animation:spin 4s linear infinite;}
+.reel.r2{animation-duration:4.2s;}
+@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+
+/* Waveform */
+.wv{display:flex;align-items:center;gap:2px;height:30px;width:100%;}
+.wb{flex:1;background:#00ff44;border-radius:1px;box-shadow:0 0 4px rgba(0,255,68,.4);animation:wva 1.3s ease-in-out infinite;}
+.wb:nth-child(even){animation-delay:.18s;}
+.wb:nth-child(3n){animation-delay:.32s;}
+.wb:nth-child(4n){animation-delay:.08s;}
+@keyframes wva{0%,100%{height:3px;}50%{height:24px;}}
+
+/* Playback controls — big chunky buttons */
+.pbctrls{display:flex;gap:8px;}
+.pcbtn{
+  flex:1;padding:8px 4px;
+  background:linear-gradient(180deg,#2a2a2e,#1e1e22);
+  border:1px solid #3a3a3e;border-bottom:2px solid #111;
+  border-radius:5px;color:#888;font-size:14px;cursor:pointer;
+  box-shadow:0 2px 5px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.04);
+  transition:all .1s;display:flex;align-items:center;justify-content:center;
+}
+.pcbtn:hover{color:#ccc;}
+.pcbtn:active{transform:translateY(1px);box-shadow:0 0 3px rgba(0,0,0,.8),inset 0 1px 3px rgba(0,0,0,.4);border-bottom-width:1px;}
+.pcbtn.play-btn{color:#00ff44;border-color:#2a4a2a;text-shadow:0 0 10px rgba(0,255,68,.5);}
+.time-strip{font-family:'Ubuntu Mono',monospace;font-size:11px;color:#555;width:100%;display:flex;justify-content:space-between;}
+
+/* History */
+.hist-toolbar{display:flex;gap:6px;margin-bottom:8px;align-items:center;}
+.search-hw{flex:1;background:#0d0d0f;border:1px solid #2a2a2a;border-radius:4px;color:#aaa;font-family:'Ubuntu Mono',monospace;font-size:11px;padding:6px 9px;}
+.search-hw:focus{outline:none;border-color:#2a4a2a;}
+.sort-hw{background:linear-gradient(180deg,#222226,#1a1a1e);border:1px solid #333;border-radius:4px;color:#777;font-family:'Ubuntu Mono',monospace;font-size:10px;padding:5px 7px;letter-spacing:.04em;}
+
+.hcard{
+  display:flex;align-items:center;gap:9px;
+  padding:9px 10px;
+  background:#0d0d0f;
+  border:1px solid #222;
+  border-radius:5px;
+  cursor:pointer;
+  margin-bottom:6px;
+  transition:border-color .15s;
+}
+.hcard:hover{border-color:#2a4a2a;}
+.hnum{font-family:'Ubuntu Mono',monospace;font-size:11px;color:#444;width:18px;text-align:right;flex-shrink:0;}
+.hinfo{flex:1;min-width:0;}
+.htitle{font-family:'Ubuntu',sans-serif;font-size:12.5px;font-weight:500;color:#bbb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hmeta{font-family:'Ubuntu Mono',monospace;font-size:10px;color:#555;margin-top:2px;}
+.hacts{display:flex;gap:4px;}
+.ha{
+  width:26px;height:26px;
+  background:linear-gradient(180deg,#222226,#1a1a1e);
+  border:1px solid #333;border-radius:4px;
+  color:#666;cursor:pointer;font-size:11px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+.ha:hover{color:#00ff44;border-color:#2a4a2a;}
+
+/* Shared input style for adv */
+input.hw-in{height:auto;padding:7px 9px;font-size:12px;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="panel">
+    <div class="nameplate">
+      <div>
+        <div class="nameplate-text">▶ Bray Music Studio</div>
+        <div class="nameplate-sub">Analog Console</div>
+      </div>
+    </div>
+    <div class="leds">
+      <div class="led-group"><div class="led green"></div>AI ONLINE</div>
+      <div class="led-group"><div class="led amber"></div>GPU ACTIVE</div>
+      <div class="led-group"><div class="led off"></div>RECORDING</div>
+      <div class="model-badge">GTX 1080 Ti · CUDA</div>
+    </div>
+  </header>
+
+  <!-- Left -->
+  <div class="left panel">
+    <div>
+      <div class="sec">■ Style Presets</div>
+      <div class="hw-btn-grid">
+        <button class="hw-btn on" onclick="sP(this,'Peaceful hymn, sacred choral voices, organ, gentle orchestral, reverent and uplifting')"><span class="em">🕊️</span>Hymns</button>
+        <button class="hw-btn" onclick="sP(this,'Contemporary Christian worship, uplifting piano, acoustic guitar, heartfelt vocals')"><span class="em">✝️</span>Christian</button>
+        <button class="hw-btn" onclick="sP(this,'Electric guitar driven rock, powerful drums, energetic riffs, stadium anthem')"><span class="em">🎸</span>Rock</button>
+        <button class="hw-btn" onclick="sP(this,'Hip-hop and rock fusion, heavy beats, rap verses, electric guitar hooks')"><span class="em">🎤</span>Rock/Rap</button>
+        <button class="hw-btn" onclick="sP(this,'Catchy pop melody, upbeat synth, polished production, bright hooky chorus')"><span class="em">⭐</span>Pop</button>
+        <button class="hw-btn" onclick="sP(this,'Country guitar, warm fiddle, heartfelt storytelling vocals, Nashville sound')"><span class="em">🤠</span>Country</button>
+        <button class="hw-btn" onclick="sP(this,'Fingerpicked acoustic guitar, intimate vocals, gentle melody, singer-songwriter')"><span class="em">🎶</span>Acoustic</button>
+        <button class="hw-btn" onclick="sP(this,'')"><span class="em">✏️</span>Custom</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">■ Voice</div>
+      <div class="sw-row" onclick="togV()">
+        <span>INCLUDE VOCALS</span>
+        <div class="sw-track on" id="vsw"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">■ VU Meter</div>
+      <div class="vu-panel">
+        <div class="vu-label">Output Level</div>
+        <div class="vu-meters">
+          <div class="vu-chan">
+            <div class="vu-bars">
+              <div class="vu-bar"></div><div class="vu-bar"></div><div class="vu-bar"></div><div class="vu-bar"></div>
+              <div class="vu-bar"></div><div class="vu-bar"></div><div class="vu-bar"></div><div class="vu-bar"></div>
+            </div>
+            <div class="vu-chan-label">L</div>
+          </div>
+          <div class="vu-chan">
+            <div class="vu-bars">
+              <div class="vu-bar vu-r1"></div><div class="vu-bar vu-r2"></div><div class="vu-bar vu-r3"></div><div class="vu-bar vu-r4"></div>
+              <div class="vu-bar vu-r5"></div><div class="vu-bar vu-r6"></div><div class="vu-bar vu-r7"></div><div class="vu-bar vu-r8"></div>
+            </div>
+            <div class="vu-chan-label">R</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">■ Duration Fader</div>
+      <div class="fader-panel">
+        <div class="fader-display"><span id="dv">3</span><span class="fader-unit"> MIN</span></div>
+        <input class="fader" type="range" min="1" max="8" step="0.5" value="3" oninput="document.getElementById('dv').textContent=this.value">
+        <div class="fader-marks"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">■ Advanced</div>
+      <div class="adv-hw" onclick="togAdv()">
+        <span>⚙ PARAMETERS</span><span id="adv-arr">▼</span>
+      </div>
+      <div class="adv-inputs" id="adv-body" style="display:none;">
+        <div class="adv-row">
+          <div><div class="field-label">BPM</div><input class="hw-in" type="text" placeholder="e.g. 120"></div>
+          <div><div class="field-label">Key</div><input class="hw-in" type="text" placeholder="e.g. C Maj"></div>
+        </div>
+        <div>
+          <div class="field-label">AI Creativity <span id="crv" style="color:#ffaa00">75%</span></div>
+          <input class="fader" type="range" min="0" max="100" value="75" oninput="document.getElementById('crv').textContent=this.value+'%'">
+        </div>
+        <div>
+          <div class="field-label">Seed</div>
+          <div style="display:flex;gap:5px;">
+            <input class="hw-in" type="text" placeholder="Random" style="flex:1;">
+            <button style="background:linear-gradient(180deg,#222,#1a1a1a);border:1px solid #333;border-radius:4px;color:#888;padding:0 8px;cursor:pointer;font-size:12px;">🎲</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center -->
+  <div class="center panel">
+    <div class="phosphor-display">
+      <input class="ph-input" id="song-title" type="text" placeholder="UNTITLED TRACK…">
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Song Description</div>
+      <textarea class="hw-ta" id="ta-desc" placeholder="Style, mood, instruments, energy — describe your song…"></textarea>
+    </div>
+
+    <div class="field-wrap" id="lyr-sec">
+      <div class="field-label">Lyrics <span style="color:#444;font-weight:300;font-size:8px;letter-spacing:.1em">— LEAVE BLANK FOR AI-GENERATED</span></div>
+      <textarea class="hw-ta" id="ta-lyrics" placeholder="Verse 1:&#10;Write your lyrics here…&#10;&#10;Chorus:&#10;Or leave empty — AI will write them."></textarea>
+    </div>
+
+    <div class="enhance-strip">
+      <div>
+        <span>✦ AI LYRIC POLISH</span>
+        <div style="font-family:'Ubuntu Mono',monospace;font-size:9px;color:#444;margin-top:2px;letter-spacing:.06em;">Refine lyrics before generating</div>
+      </div>
+      <div class="sw-track" id="esw" onclick="this.classList.toggle('on')"></div>
+    </div>
+
+    <button class="gen-btn" onclick="doGen()">▶ GENERATE TRACK</button>
+    <div class="prog-wrap" id="pw"><div class="prog-bar" id="pb"></div></div>
+    <div class="status-txt" id="st">Processing… estimated 30–60 seconds</div>
+  </div>
+
+  <!-- Right -->
+  <div class="right panel">
+    <!-- Tape Deck -->
+    <div class="tape-deck">
+      <div class="reel-display">
+        <div class="reel-title">NO TRACK LOADED</div>
+        <div class="reel-meta">Generate or select from history</div>
+      </div>
+      <div class="reels">
+        <div class="reel"></div>
+        <div style="font-size:22px;color:#333;">▶</div>
+        <div class="reel r2"></div>
+      </div>
+      <div class="wv">
+        <div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div>
+        <div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div>
+        <div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div>
+        <div class="wb"></div><div class="wb"></div><div class="wb"></div>
+      </div>
+      <div class="pbctrls">
+        <button class="pcbtn">⏮</button>
+        <button class="pcbtn">⏪</button>
+        <button class="pcbtn play-btn">▶</button>
+        <button class="pcbtn">⏩</button>
+        <button class="pcbtn">⏭</button>
+      </div>
+      <div class="time-strip"><span>0:00</span><span>–:––</span></div>
+    </div>
+
+    <!-- History -->
+    <div>
+      <div class="sec">■ Track History</div>
+      <div class="hist-toolbar">
+        <input class="search-hw" type="text" placeholder="SEARCH TRACKS…">
+        <select class="sort-hw"><option>NEWEST</option><option>OLDEST</option><option>GENRE</option></select>
+      </div>
+
+      <div class="hcard"><div class="hnum">01</div><div class="hinfo"><div class="htitle">Amazing Grace</div><div class="hmeta">HYMNS · 3:42 · FLAC · 2026-03-03</div></div><div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">✕</button></div></div>
+
+      <div class="hcard"><div class="hnum">02</div><div class="hinfo"><div class="htitle">Midnight Drive</div><div class="hmeta">ROCK · 4:15 · FLAC · 2026-03-03</div></div><div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">✕</button></div></div>
+
+      <div class="hcard"><div class="hnum">03</div><div class="hinfo"><div class="htitle">City Nights</div><div class="hmeta">POP · 3:28 · FLAC · 2026-03-02</div></div><div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">✕</button></div></div>
+
+      <div class="hcard"><div class="hnum">04</div><div class="hinfo"><div class="htitle">Dusty Roads</div><div class="hmeta">COUNTRY · 3:55 · FLAC · 2026-03-02</div></div><div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">✕</button></div></div>
+    </div>
+  </div>
+
+</div>
+<script>
+function sP(btn,desc){document.querySelectorAll('.hw-btn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');if(desc)document.getElementById('ta-desc').value=desc;}
+function togV(){const sw=document.getElementById('vsw');sw.classList.toggle('on');document.getElementById('lyr-sec').style.display=sw.classList.contains('on')?'':'none';}
+function togAdv(){const b=document.getElementById('adv-body');const open=b.style.display!=='none';b.style.display=open?'none':'flex';document.getElementById('adv-arr').textContent=open?'▼':'▲';}
+function doGen(){const pw=document.getElementById('pw'),pb=document.getElementById('pb'),st=document.getElementById('st');pw.style.display='block';st.style.display='block';let w=0;const iv=setInterval(()=>{w=Math.min(w+Math.random()*2.5,94);pb.style.width=w+'%';},500);setTimeout(()=>{clearInterval(iv);pb.style.width='100%';st.textContent='TRACK COMPLETE — see history';},45000);}
+</script>
+</body>
+</html>

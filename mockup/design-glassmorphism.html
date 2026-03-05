@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bray Music Studio — Glassmorphism</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Ubuntu',sans-serif;background:#080614;color:#fff;height:100vh;overflow:hidden;position:relative;}
+
+/* Animated blobs */
+.blob{position:fixed;border-radius:50%;filter:blur(90px);opacity:.3;animation:bfloat 9s ease-in-out infinite;}
+.b1{width:520px;height:520px;background:#6d28d9;top:-180px;left:-80px;animation-delay:0s;}
+.b2{width:420px;height:420px;background:#0d9488;bottom:-120px;right:60px;animation-delay:-4s;}
+.b3{width:360px;height:360px;background:#db2777;top:200px;right:-60px;animation-delay:-6s;}
+.b4{width:280px;height:280px;background:#2563eb;bottom:80px;left:240px;animation-delay:-2s;}
+@keyframes bfloat{0%,100%{transform:translate(0,0) scale(1);}33%{transform:translate(25px,-25px) scale(1.06);}66%{transform:translate(-18px,18px) scale(.94);}}
+
+/* Glass base */
+.glass{background:rgba(255,255,255,.055);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.11);border-radius:20px;}
+
+/* Layout */
+.app{display:grid;grid-template-columns:270px 1fr 290px;grid-template-rows:58px 1fr;height:100vh;gap:10px;padding:10px;position:relative;z-index:1;}
+
+/* Header */
+header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 18px;}
+.logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;}
+.logo-icon{width:33px;height:33px;background:linear-gradient(135deg,#8b5cf6,#ec4899);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 16px rgba(139,92,246,.4);}
+.badge{font-size:10px;font-weight:400;color:rgba(255,255,255,.35);background:rgba(255,255,255,.07);padding:3px 8px;border-radius:20px;border:1px solid rgba(255,255,255,.08);letter-spacing:.06em;text-transform:uppercase;}
+.status-pill{display:flex;align-items:center;gap:7px;font-size:12px;color:rgba(255,255,255,.5);background:rgba(255,255,255,.05);padding:6px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.08);}
+.dot{width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;}
+
+/* Sidebars / center */
+.left{overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px;}
+.center{overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;}
+.right{overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;}
+.left::-webkit-scrollbar,.center::-webkit-scrollbar,.right::-webkit-scrollbar{width:3px;}
+.left::-webkit-scrollbar-thumb,.center::-webkit-scrollbar-thumb,.right::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:2px;}
+
+/* Section label */
+.sec{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.38);margin-bottom:8px;}
+
+/* Presets */
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.pb{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#fff;padding:9px 6px;border-radius:12px;cursor:pointer;font-family:'Ubuntu',sans-serif;font-size:11.5px;font-weight:500;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .2s;}
+.pb .em{font-size:18px;}
+.pb:hover,.pb.on{background:rgba(139,92,246,.22);border-color:rgba(139,92,246,.48);box-shadow:0 0 18px rgba(139,92,246,.12);transform:translateY(-1px);}
+
+/* Toggle */
+.tog-row{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);border-radius:11px;font-size:13px;cursor:pointer;}
+.sw{width:38px;height:21px;background:rgba(255,255,255,.14);border-radius:11px;position:relative;transition:background .2s;flex-shrink:0;}
+.sw.on{background:#8b5cf6;box-shadow:0 0 10px rgba(139,92,246,.5);}
+.sw::after{content:'';position:absolute;width:15px;height:15px;background:#fff;border-radius:50%;top:3px;left:3px;transition:transform .2s;}
+.sw.on::after{transform:translateX(17px);}
+
+/* Duration card */
+.dur-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px;}
+.dur-num{text-align:center;font-size:36px;font-weight:700;background:linear-gradient(135deg,#8b5cf6,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1.1;}
+.dur-num .u{font-size:14px;font-weight:400;}
+input[type=range]{width:100%;-webkit-appearance:none;height:4px;background:rgba(255,255,255,.14);border-radius:2px;outline:none;cursor:pointer;margin-top:10px;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;background:linear-gradient(135deg,#8b5cf6,#ec4899);border-radius:50%;cursor:pointer;box-shadow:0 0 10px rgba(139,92,246,.6);}
+.range-labels{display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.28);margin-top:3px;}
+
+/* Adv */
+.adv-btn{font-size:12px;color:rgba(255,255,255,.45);cursor:pointer;text-align:center;padding:7px;border:1px solid rgba(255,255,255,.07);border-radius:9px;transition:all .2s;}
+.adv-btn:hover{background:rgba(255,255,255,.05);color:rgba(255,255,255,.75);}
+.adv-body{display:none;margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+.adv-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+/* Inputs */
+label.lbl{font-size:11.5px;color:rgba(255,255,255,.55);display:block;margin-bottom:5px;}
+textarea,input.txt{width:100%;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.11);border-radius:12px;color:#fff;font-family:'Ubuntu',sans-serif;font-size:13px;padding:11px;resize:none;transition:border-color .2s,box-shadow .2s;}
+textarea:focus,input.txt:focus{outline:none;border-color:rgba(139,92,246,.5);box-shadow:0 0 18px rgba(139,92,246,.08);}
+#ta-desc{height:85px;}
+#ta-lyrics{height:120px;}
+
+/* Song title */
+#song-title{font-size:21px;font-weight:700;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.13);border-radius:0;padding:6px 2px 10px;}
+#song-title:focus{border-bottom-color:#8b5cf6;box-shadow:none;}
+#song-title::placeholder{color:rgba(255,255,255,.22);}
+
+/* Enhance bar */
+.enhance-bar{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:13px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;}
+
+/* Generate */
+.gen-btn{width:100%;padding:15px;background:linear-gradient(135deg,#6d28d9,#8b5cf6,#db2777);background-size:200% 200%;animation:gshift 3s ease infinite;border:none;border-radius:14px;color:#fff;font-family:'Ubuntu',sans-serif;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.04em;box-shadow:0 8px 28px rgba(139,92,246,.38);transition:transform .2s,box-shadow .2s;}
+.gen-btn:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(139,92,246,.5);}
+.gen-btn:active{transform:translateY(0);}
+@keyframes gshift{0%,100%{background-position:0% 50%;}50%{background-position:100% 50%;}}
+
+/* Progress */
+.prog-wrap{height:4px;background:rgba(255,255,255,.09);border-radius:2px;overflow:hidden;display:none;}
+.prog-bar{height:100%;background:linear-gradient(90deg,#6d28d9,#ec4899);border-radius:2px;width:0%;transition:width .3s;box-shadow:0 0 8px rgba(139,92,246,.8);}
+
+/* Now playing */
+.np-area{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:11px;}
+.album{width:120px;height:120px;border-radius:16px;background:linear-gradient(135deg,#6d28d9,#ec4899);display:flex;align-items:center;justify-content:center;font-size:44px;box-shadow:0 0 36px rgba(139,92,246,.3);animation:pglow 3s ease-in-out infinite;}
+@keyframes pglow{0%,100%{box-shadow:0 0 28px rgba(139,92,246,.28);}50%{box-shadow:0 0 52px rgba(139,92,246,.48);}}
+.np-title{font-size:14px;font-weight:700;text-align:center;}
+.np-sub{font-size:11px;color:rgba(255,255,255,.38);text-align:center;}
+
+/* Waveform */
+.wv{display:flex;align-items:center;gap:3px;height:36px;}
+.wb{width:3px;background:linear-gradient(to top,#6d28d9,#ec4899);border-radius:2px;animation:wva 1.2s ease-in-out infinite;}
+.wb:nth-child(2){animation-delay:.1s;}.wb:nth-child(3){animation-delay:.2s;}.wb:nth-child(4){animation-delay:.15s;}
+.wb:nth-child(5){animation-delay:.05s;}.wb:nth-child(6){animation-delay:.25s;}.wb:nth-child(7){animation-delay:.1s;}
+.wb:nth-child(8){animation-delay:.3s;}.wb:nth-child(9){animation-delay:.18s;}.wb:nth-child(10){animation-delay:.08s;}
+.wb:nth-child(11){animation-delay:.22s;}.wb:nth-child(12){animation-delay:.12s;}.wb:nth-child(13){animation-delay:.28s;}
+.wb:nth-child(14){animation-delay:.06s;}.wb:nth-child(15){animation-delay:.16s;}
+@keyframes wva{0%,100%{height:6px;}50%{height:30px;}}
+
+/* Controls */
+.ctrls{display:flex;align-items:center;gap:10px;}
+.cbtn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:50%;width:34px;height:34px;color:#fff;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;}
+.cbtn:hover{background:rgba(139,92,246,.2);border-color:rgba(139,92,246,.4);}
+.cbtn.play{width:46px;height:46px;background:linear-gradient(135deg,#6d28d9,#ec4899);border:none;font-size:17px;box-shadow:0 0 18px rgba(139,92,246,.4);}
+.time-row{width:100%;display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.32);}
+
+/* History */
+.hist-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.hist-sort{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:rgba(255,255,255,.6);font-size:11px;padding:4px 7px;font-family:'Ubuntu',sans-serif;}
+.search-inp{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-family:'Ubuntu',sans-serif;font-size:12px;padding:7px 11px;margin-bottom:9px;}
+.search-inp:focus{outline:none;border-color:rgba(139,92,246,.4);}
+.hcard{background:rgba(255,255,255,.048);border:1px solid rgba(255,255,255,.075);border-radius:13px;padding:11px;display:flex;align-items:center;gap:9px;cursor:pointer;transition:all .2s;margin-bottom:7px;}
+.hcard:hover{background:rgba(255,255,255,.085);border-color:rgba(139,92,246,.28);transform:translateX(2px);}
+.hthumb{width:42px;height:42px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.hinfo{flex:1;min-width:0;}
+.htitle{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hmeta{font-size:10.5px;color:rgba(255,255,255,.4);margin-top:2px;}
+.hacts{display:flex;gap:5px;}
+.ha{width:27px;height:27px;background:rgba(255,255,255,.07);border:none;border-radius:7px;color:rgba(255,255,255,.55);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.ha:hover{background:rgba(139,92,246,.2);color:#fff;}
+</style>
+</head>
+<body>
+
+<div class="blob b1"></div>
+<div class="blob b2"></div>
+<div class="blob b3"></div>
+<div class="blob b4"></div>
+
+<div class="app">
+
+  <!-- Header -->
+  <header class="glass">
+    <div class="logo">
+      <div class="logo-icon">🎵</div>
+      Bray Music Studio
+      <span class="badge">Glassmorphism</span>
+    </div>
+    <div class="status-pill"><div class="dot"></div>AI Online · GTX 1080 Ti</div>
+  </header>
+
+  <!-- Left -->
+  <div class="left glass">
+    <div>
+      <div class="sec">Quick Style</div>
+      <div class="presets">
+        <button class="pb on" onclick="sPreset(this,'Peaceful hymn, sacred choral voices, organ, gentle orchestral, reverent and uplifting')"><span class="em">🕊️</span>Hymns</button>
+        <button class="pb" onclick="sPreset(this,'Contemporary Christian worship, uplifting piano, acoustic guitar, heartfelt vocals')"><span class="em">✝️</span>Christian</button>
+        <button class="pb" onclick="sPreset(this,'Electric guitar driven rock, powerful drums, energetic riffs, stadium anthem')"><span class="em">🎸</span>Rock</button>
+        <button class="pb" onclick="sPreset(this,'Hip-hop and rock fusion, heavy beats, rap verses, electric guitar hooks')"><span class="em">🎤</span>Rock/Rap</button>
+        <button class="pb" onclick="sPreset(this,'Catchy pop melody, upbeat synth, polished production, bright hooky chorus')"><span class="em">⭐</span>Pop</button>
+        <button class="pb" onclick="sPreset(this,'Country guitar, warm fiddle, heartfelt storytelling vocals, Nashville sound')"><span class="em">🤠</span>Country</button>
+        <button class="pb" onclick="sPreset(this,'Fingerpicked acoustic guitar, intimate vocals, gentle melody, singer-songwriter')"><span class="em">🎶</span>Acoustic</button>
+        <button class="pb" onclick="sPreset(this,'')"><span class="em">✏️</span>Custom</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">Voice</div>
+      <div class="tog-row" onclick="togVocals()">
+        <span>🎙️ Include Vocals</span>
+        <div class="sw on" id="vsw"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">Song Length</div>
+      <div class="dur-card">
+        <div class="dur-num"><span id="dv">3</span><span class="u"> min</span></div>
+        <input type="range" min="1" max="8" step="0.5" value="3" oninput="document.getElementById('dv').textContent=this.value">
+        <div class="range-labels"><span>1 min</span><span>8 min</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec">Advanced</div>
+      <div class="adv-btn" onclick="togAdv()">⚙️ More Settings</div>
+      <div class="adv-body" id="adv-body" style="display:none;">
+        <div class="adv-row">
+          <div><label class="lbl">BPM</label><input class="txt" type="text" placeholder="e.g. 120"></div>
+          <div><label class="lbl">Key</label><input class="txt" type="text" placeholder="e.g. C Major"></div>
+        </div>
+        <div><label class="lbl">AI Creativity <span id="crv" style="color:#8b5cf6">75%</span></label><input type="range" min="0" max="100" value="75" oninput="document.getElementById('crv').textContent=this.value+'%'"></div>
+        <div><label class="lbl">Generation Seed</label>
+          <div style="display:flex;gap:6px;"><input class="txt" type="text" placeholder="Random" style="flex:1;"><button style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.11);border-radius:9px;color:#fff;padding:0 10px;cursor:pointer;font-size:13px;">🎲</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center -->
+  <div class="center glass">
+    <input class="txt" id="song-title" type="text" placeholder="Song Title (optional)…">
+    <div>
+      <label class="lbl">Describe your song — style, mood, instruments, energy</label>
+      <textarea class="txt" id="ta-desc" placeholder="e.g. Peaceful hymn with choir and gentle organ, reverent and uplifting, slow 4/4 time…"></textarea>
+    </div>
+    <div id="lyr-sec">
+      <label class="lbl">Lyrics <span style="color:rgba(255,255,255,.3);font-weight:300">— write your own or leave blank for AI</span></label>
+      <textarea class="txt" id="ta-lyrics" placeholder="Verse 1:&#10;Write your lyrics here…&#10;&#10;Chorus:&#10;Or leave empty and the AI will write them!"></textarea>
+    </div>
+    <div class="enhance-bar">
+      <div>
+        <div style="font-size:13px;font-weight:500;">✨ AI Lyric Polish</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.38);margin-top:2px;">Let AI refine your words before generating</div>
+      </div>
+      <div class="sw" id="esw" onclick="this.classList.toggle('on')"></div>
+    </div>
+    <button class="gen-btn" onclick="doGen()">✨ Generate My Song</button>
+    <div class="prog-wrap" id="pw"><div class="prog-bar" id="pb"></div></div>
+    <div id="st" style="font-size:12px;color:rgba(255,255,255,.38);text-align:center;display:none;">Generating… this takes about 30–60 seconds</div>
+  </div>
+
+  <!-- Right -->
+  <div class="right glass">
+    <!-- Now Playing -->
+    <div class="np-area">
+      <div class="album">🎵</div>
+      <div class="np-title">Nothing playing</div>
+      <div class="np-sub">Generate or pick from history</div>
+      <div class="wv">
+        <div class="wb" style="height:6px"></div><div class="wb" style="height:12px"></div><div class="wb" style="height:6px"></div>
+        <div class="wb" style="height:18px"></div><div class="wb" style="height:6px"></div><div class="wb" style="height:14px"></div>
+        <div class="wb" style="height:6px"></div><div class="wb" style="height:22px"></div><div class="wb" style="height:6px"></div>
+        <div class="wb" style="height:16px"></div><div class="wb" style="height:6px"></div><div class="wb" style="height:10px"></div>
+        <div class="wb" style="height:6px"></div><div class="wb" style="height:26px"></div><div class="wb" style="height:6px"></div>
+      </div>
+      <div class="ctrls">
+        <button class="cbtn">⏮</button>
+        <button class="cbtn play">▶</button>
+        <button class="cbtn">⏭</button>
+      </div>
+      <div class="time-row"><span>0:00</span><span>—:——</span></div>
+    </div>
+
+    <!-- History -->
+    <div>
+      <div class="hist-head">
+        <div class="sec" style="margin:0">History</div>
+        <select class="hist-sort"><option>Newest first</option><option>Oldest first</option><option>By genre</option></select>
+      </div>
+      <input class="search-inp" type="text" placeholder="🔍 Search your songs…">
+
+      <div class="hcard">
+        <div class="hthumb" style="background:linear-gradient(135deg,#6d28d9,#ec4899)">🕊️</div>
+        <div class="hinfo"><div class="htitle">Amazing Grace</div><div class="hmeta">Hymns · 3:42 · FLAC</div></div>
+        <div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">🗑</button></div>
+      </div>
+      <div class="hcard">
+        <div class="hthumb" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)">🎸</div>
+        <div class="hinfo"><div class="htitle">Midnight Drive</div><div class="hmeta">Rock · 4:15 · FLAC</div></div>
+        <div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">🗑</button></div>
+      </div>
+      <div class="hcard">
+        <div class="hthumb" style="background:linear-gradient(135deg,#10b981,#0ea5e9)">⭐</div>
+        <div class="hinfo"><div class="htitle">City Nights</div><div class="hmeta">Pop · 3:28 · FLAC</div></div>
+        <div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">🗑</button></div>
+      </div>
+      <div class="hcard">
+        <div class="hthumb" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">🤠</div>
+        <div class="hinfo"><div class="htitle">Dusty Roads</div><div class="hmeta">Country · 3:55 · FLAC</div></div>
+        <div class="hacts"><button class="ha" title="Play">▶</button><button class="ha" title="Download">↓</button><button class="ha" title="Delete">🗑</button></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function sPreset(btn,desc){
+  document.querySelectorAll('.pb').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  if(desc) document.getElementById('ta-desc').value=desc;
+}
+function togVocals(){
+  const sw=document.getElementById('vsw');
+  sw.classList.toggle('on');
+  document.getElementById('lyr-sec').style.display=sw.classList.contains('on')?'':'none';
+}
+function togAdv(){
+  const b=document.getElementById('adv-body');
+  b.style.display=b.style.display==='none'?'flex':'none';
+}
+function doGen(){
+  const pw=document.getElementById('pw'),pb=document.getElementById('pb'),st=document.getElementById('st');
+  pw.style.display='block';st.style.display='block';
+  let w=0;
+  const iv=setInterval(()=>{w=Math.min(w+Math.random()*2.5,94);pb.style.width=w+'%';},500);
+  setTimeout(()=>{clearInterval(iv);pb.style.width='100%';st.textContent='✓ Song ready — check history!';},45000);
+}
+</script>
+</body>
+</html>

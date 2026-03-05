@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bray Music Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #09090f;
+    --surface:   #111118;
+    --surface2:  #17171f;
+    --surface3:  #1e1e28;
+    --border:    #26263a;
+    --text:      #f0f0fa;
+    --text-mid:  #c0c0d8;
+    --text-soft: #8888aa;
+    --text-dim:  #55556a;
+    --danger:    #e05555;
+    --radius:    12px;
+    --radius-sm: 7px;
+    --left-w:    222px;
+    --right-w:   308px;
+
+    /* Vivid accent — changes per theme */
+    --a1: #b044ff;
+    --a2: #ff4db8;
+    --a3: #4db8ff;
+    --grad: linear-gradient(135deg, var(--a1), var(--a2));
+    --grad2: linear-gradient(135deg, var(--a1) 0%, var(--a3) 100%);
+    --glow: rgba(176,68,255,0.35);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Ubuntu', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── HEADER ─────────────────────────────────── */
+  header {
+    background: #0d0d15;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 22px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 200;
+  }
+  .logo {
+    font-size: 20px;
+    font-weight: 700;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .logo-icon { font-size: 21px; }
+
+  /* Theme picker */
+  .theme-picker { display: flex; align-items: center; gap: 6px; margin-left: auto; margin-right: 16px; }
+  .theme-label { font-size: 10px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-right: 2px; }
+  .swatch {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid transparent; cursor: pointer;
+    transition: all 0.15s; outline: none; flex-shrink: 0;
+  }
+  .swatch:hover { transform: scale(1.2); }
+  .swatch.active { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.4); }
+  .tagline { font-size: 11px; font-weight: 300; color: var(--text-dim); }
+
+  /* ─── 3-COLUMN LAYOUT ─────────────────────────── */
+  .workspace {
+    flex: 1;
+    display: grid;
+    grid-template-columns: var(--left-w) 1fr var(--right-w);
+    min-height: 0;
+  }
+  .sidebar, .center {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface3) transparent;
+  }
+  .sidebar {
+    border-right: 1px solid var(--border);
+    padding: 16px 14px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .sidebar.right {
+    border-right: none;
+    border-left: 1px solid var(--border);
+  }
+  .center {
+    padding: 22px 26px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+
+  /* ─── SECTION TITLE ──────────────────────────── */
+  .stitle {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 10px;
+  }
+  hr.sep { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+
+  /* ─── STYLE BUTTONS (left sidebar) ───────────── */
+  .style-list { display: flex; flex-direction: column; gap: 4px; }
+  .style-btn {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-mid);
+    font-size: 13px; font-family: 'Ubuntu', sans-serif;
+    font-weight: 400; cursor: pointer;
+    transition: all 0.15s; text-align: left; width: 100%;
+  }
+  .style-btn:hover { background: var(--surface2); color: var(--text); }
+  .style-btn.active { background: var(--surface2); border-color: var(--border); color: var(--text); }
+  .style-btn.active .sbdot { opacity: 1; }
+  .sbdot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    opacity: 0.4; transition: opacity 0.15s;
+  }
+
+  /* ─── FIELD LABEL ────────────────────────────── */
+  .flabel {
+    font-size: 13px; font-weight: 500; color: var(--text-mid);
+    display: flex; align-items: center; gap: 7px;
+    margin-bottom: 7px;
+  }
+
+  /* ─── TOOLTIP ────────────────────────────────── */
+  .tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--surface3); border: 1px solid var(--border);
+    color: var(--text-soft); font-size: 9px;
+    cursor: default; position: relative; flex-shrink: 0;
+  }
+  .tip:hover .tt { display: block; }
+  .tt {
+    display: none; position: absolute; top: calc(100% + 8px); left: 50%;
+    transform: translateX(-50%);
+    background: #1a1a28; border: 1px solid var(--border);
+    color: var(--text); font-size: 12px; font-weight: 400;
+    padding: 10px 14px; border-radius: 8px;
+    width: 220px; line-height: 1.5; z-index: 999;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.7); pointer-events: none;
+  }
+  .tt::before {
+    content: ''; position: absolute; bottom: 100%; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent; border-bottom-color: var(--border);
+  }
+  .sidebar.right .tip .tt { left: auto; right: 0; transform: none; }
+  .sidebar.right .tip .tt::before { left: auto; right: 10px; transform: none; }
+
+  /* ─── VOCAL TOGGLE ───────────────────────────── */
+  .vtoggle { display: flex; flex-direction: column; gap: 5px; }
+  .vopt {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 11px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text-mid); font-size: 13px;
+    font-family: 'Ubuntu', sans-serif; cursor: pointer; transition: all 0.15s;
+  }
+  .vopt:hover { border-color: var(--a1); color: var(--text); }
+  .vopt.sel { background: var(--surface3); border-color: var(--a1); color: var(--text); }
+  .vdot {
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 2px solid var(--text-dim); flex-shrink: 0; transition: all 0.15s;
+  }
+  .vopt.sel .vdot { background: var(--a1); border-color: var(--a1); }
+
+  /* ─── TOGGLE SWITCH ──────────────────────────── */
+  .smart-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .smart-left { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+  .smart-lbl { font-size: 13px; font-weight: 500; color: var(--text-mid); display: flex; align-items: center; gap: 6px; }
+  .smart-sub { font-size: 11px; color: var(--text-soft); line-height: 1.4; }
+  .sw { position: relative; width: 40px; height: 22px; flex-shrink: 0; margin-top: 2px; }
+  .sw input { display: none; }
+  .sw-track {
+    position: absolute; inset: 0;
+    background: var(--surface3); border-radius: 11px;
+    border: 1px solid var(--border); cursor: pointer; transition: all 0.2s;
+  }
+  .sw input:checked + .sw-track { background: var(--a1); border-color: var(--a1); }
+  .sw-knob {
+    position: absolute; top: 3px; left: 3px;
+    width: 14px; height: 14px; background: #fff; border-radius: 50%;
+    transition: transform 0.2s; pointer-events: none;
+  }
+  .sw input:checked ~ .sw-knob { transform: translateX(18px); }
+
+  /* ─── ADVANCED ───────────────────────────────── */
+  .adv-toggle {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--text-soft); cursor: pointer;
+    user-select: none; padding: 5px 0; transition: color 0.15s;
+  }
+  .adv-toggle:hover { color: var(--text-mid); }
+  .adv-arr { font-size: 9px; transition: transform 0.2s; }
+  .adv-arr.open { transform: rotate(90deg); }
+  .adv-body { display: none; flex-direction: column; gap: 13px; margin-top: 10px; }
+  .adv-body.open { display: flex; }
+  .seed-row { display: flex; gap: 6px; }
+  .seed-row input { flex: 1; }
+  .fmt-opts { display: flex; gap: 12px; }
+  .fmt-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-mid); cursor: pointer; }
+  .fmt-opt input { accent-color: var(--a1); cursor: pointer; }
+
+  /* ─── INPUTS ─────────────────────────────────── */
+  input[type="text"], textarea, select {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: var(--radius-sm);
+    padding: 10px 13px; font-size: 14px;
+    font-family: 'Ubuntu', sans-serif; font-weight: 400;
+    width: 100%; transition: border-color 0.15s; resize: none;
+  }
+  input[type="text"]:focus, textarea:focus, select:focus {
+    outline: none; border-color: var(--a1);
+    box-shadow: 0 0 0 3px rgba(176,68,255,0.12);
+  }
+  ::placeholder { color: var(--text-dim); font-weight: 300; }
+  textarea { line-height: 1.55; }
+
+  /* ─── SLIDER ─────────────────────────────────── */
+  input[type="range"] {
+    -webkit-appearance: none; width: 100%; height: 4px;
+    background: var(--surface3); border-radius: 2px;
+    outline: none; cursor: pointer; padding: 0; border: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    background: var(--text); border-radius: 50%;
+    box-shadow: 0 0 10px var(--glow); cursor: pointer;
+  }
+  .slider-val {
+    font-size: 36px; font-weight: 700; text-align: center;
+    background: var(--grad); -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent; background-clip: text;
+    margin-bottom: 8px; letter-spacing: 1px;
+  }
+  .slider-labs {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim); margin-top: 5px;
+  }
+
+  /* ─── SECONDARY BUTTONS ──────────────────────── */
+  .btn-xs {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text-mid); padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-family: 'Ubuntu', sans-serif;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .btn-xs:hover { border-color: var(--a1); color: var(--text); }
+  .btn-xs.danger:hover { border-color: var(--danger); color: var(--danger); }
+  .btn-dice {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 9px 12px; border-radius: var(--radius-sm);
+    font-size: 14px; cursor: pointer; transition: all 0.15s;
+    font-family: 'Ubuntu', sans-serif; flex-shrink: 0;
+  }
+  .btn-dice:hover { border-color: var(--a1); }
+  .lyrics-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+
+  /* ─── GENERATE BUTTON ────────────────────────── */
+  .btn-gen {
+    width: 100%; padding: 17px;
+    background: var(--grad); border: none;
+    border-radius: var(--radius); color: #fff;
+    font-size: 17px; font-weight: 700;
+    font-family: 'Ubuntu', sans-serif; cursor: pointer;
+    letter-spacing: 0.3px; transition: all 0.2s;
+    box-shadow: 0 4px 30px var(--glow);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    position: relative; overflow: hidden;
+  }
+  .btn-gen::after {
+    content: ''; position: absolute; inset: 0;
+    background: rgba(255,255,255,0); transition: background 0.2s;
+  }
+  .btn-gen:hover::after { background: rgba(255,255,255,0.08); }
+  .btn-gen:hover { transform: translateY(-1px); box-shadow: 0 8px 40px var(--glow); }
+  .btn-gen:active { transform: translateY(0); }
+
+  /* ─── PROGRESS BAR ───────────────────────────── */
+  .gen-bar {
+    display: none; border-radius: var(--radius);
+    border: 1px solid var(--border); overflow: hidden;
+  }
+  .gen-bar.show { display: block; }
+  .gen-bar-inner {
+    padding: 16px 20px; text-align: center;
+    background: var(--surface);
+  }
+  .gen-lbl { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
+  .gen-track { height: 5px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+  .gen-fill {
+    height: 100%; width: 0%;
+    background: var(--grad); border-radius: 3px;
+    animation: gfill 6s ease-in-out forwards;
+  }
+  @keyframes gfill { 0%{width:0%} 50%{width:70%} 90%{width:92%} }
+  .gen-sub { font-size: 11px; color: var(--text-soft); margin-top: 8px; }
+
+  /* ─── NOW PLAYING ────────────────────────────── */
+  .np-card {
+    border-radius: var(--radius); overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .np-art {
+    height: 100px; position: relative;
+    display: flex; align-items: flex-end;
+    padding: 10px 12px;
+  }
+  .np-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.35);
+  }
+  .np-name {
+    position: relative; z-index: 1;
+    font-size: 15px; font-weight: 700;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.8);
+  }
+  .np-body { background: var(--surface); padding: 12px 14px; }
+
+  /* animated waveform bars */
+  .waveform {
+    display: flex; align-items: center; gap: 2px;
+    height: 28px; margin-bottom: 8px;
+  }
+  .wb {
+    width: 3px; border-radius: 2px;
+    background: var(--a1); opacity: 0.8;
+    animation: wv 1.2s ease-in-out infinite;
+  }
+  .wb:nth-child(2n)   { animation-delay: .1s; animation-duration: 0.9s; }
+  .wb:nth-child(3n)   { animation-delay: .2s; animation-duration: 1.1s; }
+  .wb:nth-child(4n)   { animation-delay: .3s; animation-duration: 0.8s; }
+  .wb:nth-child(5n)   { animation-delay: .15s; animation-duration: 1.3s; }
+  .wb:nth-child(6n)   { animation-delay: .05s; animation-duration: 1.0s; }
+  @keyframes wv {
+    0%,100% { height: 4px; }
+    50% { height: 22px; }
+  }
+  .waveform.paused .wb { animation-play-state: paused; }
+
+  .np-controls { display: flex; align-items: center; gap: 10px; }
+  .play-btn {
+    width: 34px; height: 34px; background: var(--grad);
+    border: none; border-radius: 50%; color: #fff;
+    font-size: 12px; cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; box-shadow: 0 2px 14px var(--glow);
+  }
+  .play-btn:hover { transform: scale(1.08); }
+  .prog-wrap { flex: 1; }
+  .prog-bg {
+    height: 3px; background: var(--surface3); border-radius: 2px; cursor: pointer;
+  }
+  .prog-fill {
+    height: 100%; width: 35%;
+    background: var(--grad); border-radius: 2px;
+  }
+  .prog-times {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--text-soft); margin-top: 4px;
+  }
+  .btn-dl {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-mid); padding: 6px 10px; border-radius: var(--radius-sm);
+    font-size: 12px; cursor: pointer; transition: all 0.15s;
+    font-family: 'Ubuntu', sans-serif; flex-shrink: 0;
+  }
+  .btn-dl:hover { border-color: var(--a3); color: var(--a3); }
+
+  /* ─── HISTORY ────────────────────────────────── */
+  .hist-ctrls { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .hist-search {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: var(--radius-sm);
+    padding: 8px 11px; font-size: 13px;
+    font-family: 'Ubuntu', sans-serif; width: 100%;
+  }
+  .hist-search:focus { outline: none; border-color: var(--a1); }
+  .sort-sel {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text-mid); padding: 6px 10px; border-radius: var(--radius-sm);
+    font-size: 12px; font-family: 'Ubuntu', sans-serif;
+    cursor: pointer; width: 100%;
+  }
+
+  .hist-list { display: flex; flex-direction: column; gap: 5px; }
+  .hcard {
+    border-radius: var(--radius-sm); overflow: hidden;
+    border: 1px solid var(--border); cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .hcard:hover { border-color: rgba(176,68,255,0.5); }
+  .hcard.playing { border-color: var(--a1); }
+  .hcard-art {
+    height: 5px; /* color strip on top */
+  }
+  .hcard-body { background: var(--surface2); padding: 10px 11px; }
+  .hcard-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .hcard-thumb {
+    width: 36px; height: 36px; border-radius: 6px;
+    flex-shrink: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 16px;
+  }
+  .hcard-info { flex: 1; min-width: 0; }
+  .hcard-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hcard-desc { font-size: 11px; color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hcard-acts { display: flex; gap: 3px; flex-shrink: 0; }
+  .hcard-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+  .htag {
+    font-size: 10px; font-weight: 500; color: var(--text-soft);
+    background: var(--surface3); border-radius: 3px; padding: 2px 6px;
+  }
+  .htag.genre { color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- ─── HEADER ──────────────────────────── -->
+<header>
+  <span class="logo-icon">🎵</span>
+  <span class="logo">Bray Music Studio</span>
+
+  <div class="theme-picker">
+    <span class="theme-label">Theme</span>
+    <button class="swatch active" data-theme="neon"    title="Neon Nights"     style="background:linear-gradient(135deg,#b044ff,#ff4db8)"></button>
+    <button class="swatch"        data-theme="cyber"   title="Cyber Blue"      style="background:linear-gradient(135deg,#00c8ff,#0050d0)"></button>
+    <button class="swatch"        data-theme="fire"    title="Fire"            style="background:linear-gradient(135deg,#ff6030,#ff2060)"></button>
+    <button class="swatch"        data-theme="emerald" title="Emerald"         style="background:linear-gradient(135deg,#00e898,#0090d0)"></button>
+    <button class="swatch"        data-theme="gold"    title="Midnight Gold"   style="background:linear-gradient(135deg,#ffcc00,#ff8800)"></button>
+  </div>
+
+  <span class="tagline">AI music · running on your home server</span>
+</header>
+
+<!-- ─── WORKSPACE ────────────────────────── -->
+<div class="workspace">
+
+<!-- ═══════ LEFT SIDEBAR ═══════ -->
+<aside class="sidebar">
+
+  <div>
+    <div class="stitle">Pick a Style</div>
+    <div class="style-list">
+      <button class="style-btn"        onclick="setStyle(this,'hymns')"    ><span class="sbdot" style="background:#c8960a"></span>⛪ Hymns</button>
+      <button class="style-btn active" onclick="setStyle(this,'christian')" ><span class="sbdot" style="background:#6060e0"></span>✝️ Christian</button>
+      <button class="style-btn"        onclick="setStyle(this,'rock')"     ><span class="sbdot" style="background:#e04040"></span>🎸 Rock</button>
+      <button class="style-btn"        onclick="setStyle(this,'rockrap')"  ><span class="sbdot" style="background:#e07020"></span>🎤 Rock / Rap</button>
+      <button class="style-btn"        onclick="setStyle(this,'pop')"      ><span class="sbdot" style="background:#e040a0"></span>🎶 Pop</button>
+      <button class="style-btn"        onclick="setStyle(this,'country')"  ><span class="sbdot" style="background:#a07020"></span>🤠 Country</button>
+      <button class="style-btn"        onclick="setStyle(this,'acoustic')" ><span class="sbdot" style="background:#20a060"></span>🪕 Acoustic</button>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div>
+    <div class="flabel">Vocals
+      <span class="tip">ⓘ<span class="tt">Choose whether the song has singing, or is purely instrumental with no vocals.</span></span>
+    </div>
+    <div class="vtoggle">
+      <label class="vopt sel" id="opt-v"  onclick="selVocals(true)"><div class="vdot"></div>🎤 Include Vocals</label>
+      <label class="vopt"     id="opt-i"  onclick="selVocals(false)"><div class="vdot"></div>🎼 Instrumental Only</label>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div>
+    <div class="smart-row">
+      <div class="smart-left">
+        <span class="smart-lbl">🧠 Smarter Generation
+          <span class="tip">ⓘ<span class="tt">The AI plans the song structure before making it — like sketching before painting. Slightly slower but noticeably better output. Leave this on.</span></span>
+        </span>
+        <span class="smart-sub">AI plans your song before generating it</span>
+      </div>
+      <label class="sw"><input type="checkbox" checked><div class="sw-track"></div><div class="sw-knob"></div></label>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div>
+    <div class="adv-toggle" onclick="toggleAdv(this)">
+      <span class="adv-arr" id="advArr">▶</span> Advanced Options
+    </div>
+    <div class="adv-body" id="advBody">
+
+      <div>
+        <div class="flabel">Tempo (BPM)
+          <span class="tip">ⓘ<span class="tt">Speed of the song. 80–100 is relaxed, 120–140 is upbeat. Leave blank and the AI picks what fits best.</span></span>
+        </div>
+        <input type="text" placeholder="Auto">
+      </div>
+
+      <div>
+        <div class="flabel">Musical Key
+          <span class="tip">ⓘ<span class="tt">The key of the song (e.g. C Major, A Minor). Leave blank for best results.</span></span>
+        </div>
+        <input type="text" placeholder="Auto">
+      </div>
+
+      <div>
+        <div class="flabel">AI Influence
+          <span class="tip">ⓘ<span class="tt">Higher = AI follows your description more strictly. Lower = more creative freedom.</span></span>
+        </div>
+        <input type="range" min="0" max="1" step="0.05" value="0.7">
+        <div class="slider-labs"><span>Free-form</span><span>On-prompt</span></div>
+      </div>
+
+      <div>
+        <div class="flabel">Generation Seed
+          <span class="tip">ⓘ<span class="tt">Same seed + same settings = same song every time. Hit the dice for a completely different result.</span></span>
+        </div>
+        <div class="seed-row">
+          <input type="text" value="482930">
+          <button class="btn-dice" onclick="this.previousElementSibling.value=Math.floor(Math.random()*9999999)">🎲</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="flabel">Save Format
+          <span class="tip">ⓘ<span class="tt">FLAC = lossless, highest quality. MP3 = smaller file. WAV = uncompressed raw audio.</span></span>
+        </div>
+        <div class="fmt-opts">
+          <label class="fmt-opt"><input type="radio" name="fmt" checked> FLAC</label>
+          <label class="fmt-opt"><input type="radio" name="fmt"> MP3</label>
+          <label class="fmt-opt"><input type="radio" name="fmt"> WAV</label>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</aside>
+
+<!-- ═══════ CENTER ═══════ -->
+<main class="center">
+
+  <div>
+    <div class="flabel">Song Title</div>
+    <input type="text" id="songTitle" placeholder="Give your song a name..." value="Sunday Morning Rise">
+  </div>
+
+  <div>
+    <div class="flabel">Describe Your Music
+      <span class="tip">ⓘ<span class="tt">Describe the style, mood, instruments, tempo, and energy you want. The more specific, the better.</span></span>
+    </div>
+    <textarea id="desc" rows="4" placeholder="e.g., uplifting Christian worship, piano and choir, building chorus, hopeful and joyful feel...">Uplifting Christian worship, acoustic guitar and piano, full choir on the chorus, hopeful joyful feel, anthem style, building energy throughout</textarea>
+  </div>
+
+  <div id="lyricsWrap">
+    <div class="lyrics-hdr">
+      <div class="flabel" style="margin-bottom:0;">Lyrics
+        <span class="tip">ⓘ<span class="tt">Paste your lyrics here. Leave empty and the AI writes its own. Use [Verse], [Chorus], [Bridge] — or hit Clean Up and the AI adds structure for you.</span></span>
+      </div>
+      <button class="btn-xs" title="AI reformats your lyrics with [Verse], [Chorus], [Bridge] structure so they come out better in the song.">✨ Clean Up My Lyrics</button>
+    </div>
+    <textarea id="lyrics" rows="7" style="margin-top:7px;" placeholder="Paste your lyrics here, or leave empty and the AI will write its own...&#10;&#10;[Verse]&#10;...&#10;[Chorus]&#10;..."></textarea>
+  </div>
+
+  <div>
+    <div class="flabel">Song Length
+      <span class="tip">ⓘ<span class="tt">How long the finished song will be. 3–4 minutes makes a full song. Max is 8 minutes on this hardware.</span></span>
+    </div>
+    <div class="slider-val" id="durDisp">3:30</div>
+    <input type="range" id="durSlider" min="30" max="480" value="210" oninput="updDur(this.value)">
+    <div class="slider-labs"><span>0:30</span><span>2:00</span><span>4:00</span><span>6:00</span><span>8:00</span></div>
+  </div>
+
+  <button class="btn-gen" onclick="startGen()">🎵 &nbsp;Generate Music</button>
+
+  <div class="gen-bar" id="genBar">
+    <div class="gen-bar-inner">
+      <div class="gen-lbl">🎵 Generating your song...</div>
+      <div class="gen-track"><div class="gen-fill" id="genFill"></div></div>
+      <div class="gen-sub">Typically 15–30 seconds on GPU. Hang tight.</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══════ RIGHT SIDEBAR ═══════ -->
+<aside class="sidebar right">
+
+  <!-- Now Playing -->
+  <div>
+    <div class="stitle">Now Playing</div>
+    <div class="np-card">
+      <div class="np-art" id="npArt" style="background:linear-gradient(135deg,#3010a0,#900060)">
+        <div class="np-overlay"></div>
+        <div class="np-name" id="npName">Sunday Morning Rise</div>
+      </div>
+      <div class="np-body">
+        <div class="waveform" id="waveform">
+          <div class="wb" style="height:8px"></div>
+          <div class="wb" style="height:16px"></div>
+          <div class="wb" style="height:12px"></div>
+          <div class="wb" style="height:20px"></div>
+          <div class="wb" style="height:8px"></div>
+          <div class="wb" style="height:18px"></div>
+          <div class="wb" style="height:14px"></div>
+          <div class="wb" style="height:22px"></div>
+          <div class="wb" style="height:10px"></div>
+          <div class="wb" style="height:16px"></div>
+          <div class="wb" style="height:20px"></div>
+          <div class="wb" style="height:12px"></div>
+          <div class="wb" style="height:18px"></div>
+          <div class="wb" style="height:8px"></div>
+          <div class="wb" style="height:14px"></div>
+          <div class="wb" style="height:22px"></div>
+          <div class="wb" style="height:16px"></div>
+          <div class="wb" style="height:10px"></div>
+          <div class="wb" style="height:18px"></div>
+          <div class="wb" style="height:14px"></div>
+          <div class="wb" style="height:20px"></div>
+          <div class="wb" style="height:8px"></div>
+          <div class="wb" style="height:16px"></div>
+          <div class="wb" style="height:12px"></div>
+          <div class="wb" style="height:18px"></div>
+          <div class="wb" style="height:22px"></div>
+          <div class="wb" style="height:10px"></div>
+          <div class="wb" style="height:14px"></div>
+          <div class="wb" style="height:8px"></div>
+          <div class="wb" style="height:20px"></div>
+          <div class="wb" style="height:16px"></div>
+          <div class="wb" style="height:12px"></div>
+          <div class="wb" style="height:18px"></div>
+          <div class="wb" style="height:22px"></div>
+          <div class="wb" style="height:8px"></div>
+          <div class="wb" style="height:14px"></div>
+          <div class="wb" style="height:20px"></div>
+          <div class="wb" style="height:10px"></div>
+          <div class="wb" style="height:16px"></div>
+          <div class="wb" style="height:8px"></div>
+        </div>
+        <div class="np-controls">
+          <button class="play-btn" onclick="togglePlay(this)">▶</button>
+          <div class="prog-wrap">
+            <div class="prog-bg"><div class="prog-fill"></div></div>
+            <div class="prog-times"><span>1:14</span><span>3:30</span></div>
+          </div>
+          <button class="btn-dl">↓ Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <!-- History -->
+  <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+    <div class="stitle">Your Songs</div>
+    <div class="hist-ctrls">
+      <input class="hist-search" type="text" placeholder="🔍  Search your songs...">
+      <select class="sort-sel">
+        <option>Newest first</option>
+        <option>Oldest first</option>
+        <option>Longest first</option>
+        <option>By title A–Z</option>
+      </select>
+    </div>
+
+    <div class="hist-list">
+
+      <div class="hcard playing">
+        <div class="hcard-art" style="background:linear-gradient(90deg,#3010a0,#900060)"></div>
+        <div class="hcard-body">
+          <div class="hcard-top">
+            <div class="hcard-thumb" style="background:linear-gradient(135deg,#3010a0,#900060)">✝️</div>
+            <div class="hcard-info">
+              <div class="hcard-name">Sunday Morning Rise</div>
+              <div class="hcard-desc">Uplifting Christian worship, acoustic guitar, piano, choir...</div>
+            </div>
+            <div class="hcard-acts">
+              <button class="btn-xs">▶</button>
+              <button class="btn-xs">↓</button>
+              <button class="btn-xs danger">🗑</button>
+            </div>
+          </div>
+          <div class="hcard-meta">
+            <span class="htag">Mar 3 · 10:42 AM</span>
+            <span class="htag">3:30</span>
+            <span class="htag">FLAC</span>
+            <span class="htag genre" style="color:#a090ff">Christian</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="hcard-art" style="background:linear-gradient(90deg,#a01010,#602000)"></div>
+        <div class="hcard-body">
+          <div class="hcard-top">
+            <div class="hcard-thumb" style="background:linear-gradient(135deg,#a01010,#602000)">🎸</div>
+            <div class="hcard-info">
+              <div class="hcard-name">Fire and Stone</div>
+              <div class="hcard-desc">Heavy rock anthem, distorted guitar, pounding drums...</div>
+            </div>
+            <div class="hcard-acts">
+              <button class="btn-xs">▶</button>
+              <button class="btn-xs">↓</button>
+              <button class="btn-xs danger">🗑</button>
+            </div>
+          </div>
+          <div class="hcard-meta">
+            <span class="htag">Mar 3 · 9:15 AM</span>
+            <span class="htag">4:00</span>
+            <span class="htag">FLAC</span>
+            <span class="htag genre" style="color:#ff8070">Rock</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="hcard-art" style="background:linear-gradient(90deg,#904010,#603000)"></div>
+        <div class="hcard-body">
+          <div class="hcard-top">
+            <div class="hcard-thumb" style="background:linear-gradient(135deg,#904010,#603000)">🎤</div>
+            <div class="hcard-info">
+              <div class="hcard-name">Streets to the Altar</div>
+              <div class="hcard-desc">Rock/rap crossover, hip-hop verse, powerful rock chorus...</div>
+            </div>
+            <div class="hcard-acts">
+              <button class="btn-xs">▶</button>
+              <button class="btn-xs">↓</button>
+              <button class="btn-xs danger">🗑</button>
+            </div>
+          </div>
+          <div class="hcard-meta">
+            <span class="htag">Mar 2 · 7:50 PM</span>
+            <span class="htag">3:45</span>
+            <span class="htag">FLAC</span>
+            <span class="htag genre" style="color:#ffaa60">Rock/Rap</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="hcard-art" style="background:linear-gradient(90deg,#806010,#503000)"></div>
+        <div class="hcard-body">
+          <div class="hcard-top">
+            <div class="hcard-thumb" style="background:linear-gradient(135deg,#806010,#503000)">⛪</div>
+            <div class="hcard-info">
+              <div class="hcard-name">Ancient of Days</div>
+              <div class="hcard-desc">Traditional hymn, pipe organ, four-part harmony choir...</div>
+            </div>
+            <div class="hcard-acts">
+              <button class="btn-xs">▶</button>
+              <button class="btn-xs">↓</button>
+              <button class="btn-xs danger">🗑</button>
+            </div>
+          </div>
+          <div class="hcard-meta">
+            <span class="htag">Mar 2 · 3:20 PM</span>
+            <span class="htag">2:58</span>
+            <span class="htag">FLAC</span>
+            <span class="htag genre" style="color:#d4a030">Hymns</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="hcard-art" style="background:linear-gradient(90deg,#106030,#104020)"></div>
+        <div class="hcard-body">
+          <div class="hcard-top">
+            <div class="hcard-thumb" style="background:linear-gradient(135deg,#106030,#104020)">🪕</div>
+            <div class="hcard-info">
+              <div class="hcard-name">Porch at Sundown</div>
+              <div class="hcard-desc">Laid-back acoustic folk, fingerpicked guitar, soft vocals...</div>
+            </div>
+            <div class="hcard-acts">
+              <button class="btn-xs">▶</button>
+              <button class="btn-xs">↓</button>
+              <button class="btn-xs danger">🗑</button>
+            </div>
+          </div>
+          <div class="hcard-meta">
+            <span class="htag">Mar 1 · 8:10 AM</span>
+            <span class="htag">3:15</span>
+            <span class="htag">FLAC</span>
+            <span class="htag genre" style="color:#50d090">Acoustic</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</aside>
+</div><!-- end workspace -->
+
+<script>
+// ── Style presets ──────────────────────────────
+const styleDescs = {
+  hymns:     'Traditional hymn, pipe organ, four-part harmony choir, reverent and majestic, slow stately tempo',
+  christian: 'Uplifting Christian worship, acoustic guitar and piano, full choir on the chorus, hopeful joyful feel, anthem style, building energy throughout',
+  rock:      'High-energy rock anthem, distorted electric guitar, driving drums, powerful male vocals, stadium feel',
+  rockrap:   'Rock and rap crossover, hip-hop verse flowing into a powerful rock chorus, hard-hitting beat, electric guitar riffs',
+  pop:       'Catchy upbeat pop, synth and acoustic guitar, female vocals, memorable hook, feel-good summer energy',
+  country:   'Country storytelling, acoustic guitar and fiddle, warm vocals, Southern charm and heart',
+  acoustic:  'Laid-back acoustic folk, fingerpicked guitar, soft intimate vocals, honest storytelling feel',
+};
+function setStyle(btn, key) {
+  document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('desc').value = styleDescs[key];
+}
+function selVocals(yes) {
+  document.getElementById('opt-v').classList.toggle('sel', yes);
+  document.getElementById('opt-i').classList.toggle('sel', !yes);
+  document.getElementById('lyricsWrap').style.display = yes ? '' : 'none';
+}
+function updDur(v) {
+  const s = parseInt(v);
+  document.getElementById('durDisp').textContent =
+    Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+}
+function toggleAdv(el) {
+  document.getElementById('advBody').classList.toggle('open');
+  document.getElementById('advArr').classList.toggle('open');
+}
+function togglePlay(btn) {
+  const wf = document.getElementById('waveform');
+  const playing = btn.textContent === '⏸';
+  btn.textContent = playing ? '▶' : '⏸';
+  wf.classList.toggle('paused', playing);
+}
+function startGen() {
+  const bar = document.getElementById('genBar');
+  const fill = document.getElementById('genFill');
+  bar.classList.add('show');
+  fill.style.animation = 'none'; fill.offsetHeight; fill.style.animation = '';
+  setTimeout(() => {
+    bar.classList.remove('show');
+    const t = document.getElementById('songTitle').value || 'Untitled';
+    document.getElementById('npName').textContent = t;
+  }, 6000);
+}
+
+// ── Themes ────────────────────────────────────
+const themes = {
+  neon:    { '--a1':'#b044ff', '--a2':'#ff4db8', '--a3':'#4db8ff', '--glow':'rgba(176,68,255,0.35)' },
+  cyber:   { '--a1':'#0099dd', '--a2':'#0044cc', '--a3':'#00ccff', '--glow':'rgba(0,153,221,0.35)' },
+  fire:    { '--a1':'#ff4820', '--a2':'#ff1060', '--a3':'#ffaa00', '--glow':'rgba(255,72,32,0.4)'  },
+  emerald: { '--a1':'#00cc78', '--a2':'#00a0d0', '--a3':'#00ffcc', '--glow':'rgba(0,204,120,0.35)' },
+  gold:    { '--a1':'#e8a800', '--a2':'#ff7700', '--a3':'#ffe066', '--glow':'rgba(232,168,0,0.4)'  },
+};
+document.querySelectorAll('.swatch').forEach(s => {
+  s.addEventListener('click', () => {
+    const t = themes[s.dataset.theme];
+    const r = document.documentElement;
+    for (const [k,v] of Object.entries(t)) r.style.setProperty(k,v);
+    document.querySelectorAll('.swatch').forEach(x => x.classList.toggle('active', x===s));
+  });
+});
+</script>
+</body>
+</html>
