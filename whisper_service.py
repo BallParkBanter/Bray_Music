@@ -53,11 +53,11 @@ async def validate(req: ValidateRequest):
 
     model = _get_model()
 
-    segments_list, info = model.transcribe(
-        str(audio_path),
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
-    )
+    # No VAD filter — music confuses the VAD and it drops all segments.
+    # For music vocals, avg_logprob is the primary quality signal.
+    # no_speech_prob is often high (>0.5) even for clear vocals over music,
+    # so we use a relaxed threshold of 0.9 instead of 0.5.
+    segments_list, info = model.transcribe(str(audio_path))
 
     total = 0
     good = 0
@@ -66,7 +66,7 @@ async def validate(req: ValidateRequest):
     for seg in segments_list:
         total += 1
         logprob_sum += seg.avg_logprob
-        if seg.avg_logprob > -0.8 and seg.no_speech_prob < 0.5:
+        if seg.avg_logprob > -0.8 and seg.no_speech_prob < 0.9:
             good += 1
 
     if total == 0:
