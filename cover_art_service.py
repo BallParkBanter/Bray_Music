@@ -3,8 +3,9 @@
 Runs on the host (ROG-STRIX) at port 7863. Uses Juggernaut XL (SDXL) on the
 local GTX 1080 Ti to generate album cover art from text prompts.
 
-The model is loaded on each request and unloaded immediately after to free
-VRAM for ACE-Step. Both cannot coexist in 11 GB VRAM.
+After each generation the process exits so systemd restarts it with a clean
+CUDA context. This is necessary because torch.cuda.empty_cache() does not
+release VRAM visible to other processes (ACE-Step needs the full 11 GB).
 
 Install: pip install fastapi uvicorn diffusers transformers accelerate
 Run: uvicorn cover_art_service:app --host 0.0.0.0 --port 7863
@@ -12,6 +13,8 @@ Run: uvicorn cover_art_service:app --host 0.0.0.0 --port 7863
 
 import io
 import logging
+import os
+import signal
 import time
 
 import torch
@@ -26,38 +29,6 @@ app = FastAPI(title="Cover Art Service")
 
 MODEL_ID = "RunDiffusion/Juggernaut-XL-v9"
 
-_pipe = None
-
-
-def _load_model():
-    global _pipe
-    if _pipe is not None:
-        return _pipe
-    from diffusers import StableDiffusionXLPipeline
-    logger.info("Loading Juggernaut XL (fp16)...")
-    _pipe = StableDiffusionXLPipeline.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch.float16,
-        use_safetensors=True,
-        variant="fp16",
-    )
-    _pipe = _pipe.to("cuda")
-    _pipe.set_progress_bar_config(disable=True)
-    vram = torch.cuda.memory_allocated() / 1e9
-    logger.info(f"Model loaded. VRAM: {vram:.2f} GB")
-    return _pipe
-
-
-def _unload_model():
-    global _pipe
-    if _pipe is None:
-        return
-    del _pipe
-    _pipe = None
-    torch.cuda.empty_cache()
-    vram = torch.cuda.memory_allocated() / 1e9
-    logger.info(f"Model unloaded. VRAM: {vram:.2f} GB")
-
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=1000)
@@ -71,8 +42,18 @@ class GenerateRequest(BaseModel):
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
+    from diffusers import StableDiffusionXLPipeline
+
+    logger.info("Loading Juggernaut XL (fp16)...")
     try:
-        pipe = _load_model()
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            MODEL_ID,
+            torch_dtype=torch.float16,
+            use_safetensors=True,
+            variant="fp16",
+        )
+        pipe = pipe.to("cuda")
+        pipe.set_progress_bar_config(disable=True)
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         raise HTTPException(status_code=500, detail=f"Model load failed: {e}")
@@ -93,23 +74,31 @@ async def generate(req: GenerateRequest):
         )
         image = result.images[0]
     except torch.cuda.OutOfMemoryError:
-        _unload_model()
+        logger.error("GPU OOM during generation")
         raise HTTPException(status_code=503, detail="GPU out of memory")
     except Exception as e:
         logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        _unload_model()
 
     elapsed = time.time() - t0
     logger.info(f"Generated {req.width}x{req.height} in {elapsed:.1f}s (seed={seed})")
 
     buf = io.BytesIO()
     image.save(buf, format="PNG")
-    buf.seek(0)
+    content = buf.getvalue()
+
+    # Schedule process exit after response is sent so systemd restarts us
+    # with a clean CUDA context (empty_cache doesn't free VRAM cross-process)
+    def _exit_soon():
+        time.sleep(1)
+        logger.info("Exiting to release CUDA context for ACE-Step")
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    import threading
+    threading.Thread(target=_exit_soon, daemon=True).start()
 
     return Response(
-        content=buf.getvalue(),
+        content=content,
         media_type="image/png",
         headers={"X-Seed": str(seed), "X-Elapsed": f"{elapsed:.1f}"},
     )
@@ -119,7 +108,5 @@ async def generate(req: GenerateRequest):
 async def health():
     return {
         "status": "ok",
-        "model_loaded": _pipe is not None,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
-        "vram_used_gb": round(torch.cuda.memory_allocated() / 1e9, 2),
     }
