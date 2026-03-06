@@ -4,7 +4,7 @@ from typing import Optional
 
 
 class GenerateRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
+    title: str = Field(default="", max_length=200)
     description: str = Field(..., min_length=1, max_length=500)
     lyrics: str = Field(default="", max_length=5000)
     duration: float = Field(default=0, ge=0, le=8.0)  # 0 = auto (AI decides length)

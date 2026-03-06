@@ -92,7 +92,21 @@ def _api_to_real(api_params: dict) -> list:
     return real
 
 
-def _build_params(req: GenerateRequest) -> tuple[list, int]:
+# Genre-appropriate BPM ranges (mid-point used when user doesn't specify)
+_GENRE_BPM = {
+    "hip hop": 90, "rap": 90, "trap": 140,
+    "ballad": 72, "gospel": 80,
+    "pop": 120, "dance": 128, "electronic": 130,
+    "rock": 130, "punk": 160, "metal": 140,
+    "jazz": 110, "blues": 85, "soul": 90, "r&b": 85,
+    "country": 110, "folk": 105, "indie": 115,
+    "reggae": 80, "latin": 100,
+    "classical": 100, "ambient": 80,
+    "j-pop": 128, "k-pop": 125,
+}
+
+
+def _build_params(req: GenerateRequest, genre_hint: str = "") -> tuple[list, int]:
     """Build the 55-element parameter array for ACE-Step Gradio API."""
     api = dict(API_DEFAULTS)
 
@@ -109,6 +123,12 @@ def _build_params(req: GenerateRequest) -> tuple[list, int]:
             api[2] = float(req.bpm)
         except ValueError:
             pass
+    else:
+        # Auto-pick BPM based on genre
+        auto_bpm = _GENRE_BPM.get(genre_hint)
+        if auto_bpm:
+            api[2] = float(auto_bpm)
+
     if req.key and req.key.strip():
         api[3] = req.key
     api[5] = "en"
@@ -117,7 +137,12 @@ def _build_params(req: GenerateRequest) -> tuple[list, int]:
     # Creativity: 0 (strict) → guidance 10, 100 (free) → guidance 1.5
     api[7] = 10.0 - (req.creativity / 100.0) * 8.5
 
-    api[11] = -1 if req.duration == 0 else req.duration * 60  # 0 = auto duration
+    # Duration: user-set or auto (-1 lets ACE-Step LM determine from lyrics length)
+    if req.duration > 0:
+        api[11] = req.duration * 60
+    else:
+        api[11] = -1
+
     api[12] = 1               # batch size 1
     api[27] = "flac"
 
@@ -178,9 +203,9 @@ def _check_for_error(data: list) -> str | None:
     return None
 
 
-async def generate(req: GenerateRequest) -> dict:
+async def generate(req: GenerateRequest, genre_hint: str = "") -> dict:
     """Submit generation request, poll until complete, download FLAC to shared volume."""
-    param_array, seed_used = _build_params(req)
+    param_array, seed_used = _build_params(req, genre_hint)
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         # Submit
@@ -278,7 +303,7 @@ def _extract_progress_message(data) -> str | None:
     return None
 
 
-async def generate_streaming(req: GenerateRequest):
+async def generate_streaming(req: GenerateRequest, genre_hint: str = ""):
     """Async generator yielding real-time progress events during generation.
 
     Events:
@@ -287,7 +312,7 @@ async def generate_streaming(req: GenerateRequest):
         {"event":"complete", "result":{"file_path":..., "filename":..., "seed":...}}
         {"event":"error", "message":"..."}
     """
-    param_array, seed_used = _build_params(req)
+    param_array, seed_used = _build_params(req, genre_hint)
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         # Step 1: Submit to ACE-Step
@@ -302,7 +327,7 @@ async def generate_streaming(req: GenerateRequest):
             yield {"event": "error", "message": f"Submit failed: {e}"}
             return
 
-        yield {"event": "step", "step": "submit", "state": "done"}
+        yield {"event": "step", "step": "submit", "state": "done", "detail": "\U0001f680 Submitted to ACE-Step on ROG-STRIX"}
         yield {"event": "step", "step": "queue", "state": "active"}
 
         # Step 2-5: Poll SSE stream from ACE-Step
@@ -337,7 +362,7 @@ async def generate_streaming(req: GenerateRequest):
                         if event_type == "generating":
                             if not entered_generating:
                                 entered_generating = True
-                                yield {"event": "step", "step": "queue", "state": "done"}
+                                yield {"event": "step", "step": "queue", "state": "done", "detail": "\u26a1 ACE-Step GPU ready (GTX 1080 Ti)"}
                                 yield {"event": "step", "step": "generate", "state": "active"}
 
                             try:
@@ -380,9 +405,9 @@ async def generate_streaming(req: GenerateRequest):
 
         # Mark generation phases done
         if not entered_generating:
-            yield {"event": "step", "step": "queue", "state": "done"}
+            yield {"event": "step", "step": "queue", "state": "done", "detail": "\u26a1 ACE-Step GPU ready (GTX 1080 Ti)"}
         yield {"event": "step", "step": "generate", "state": "done"}
-        yield {"event": "step", "step": "decode", "state": "done"}
+        yield {"event": "step", "step": "decode", "state": "done", "detail": "\U0001f4bf Encoded to FLAC (48kHz lossless)"}
         yield {"event": "step", "step": "save", "state": "active"}
 
         # Step 6: Download FLAC

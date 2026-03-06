@@ -17,7 +17,7 @@ async def validate_track(filename: str) -> dict | None:
     Returns None if the service is unavailable or validation fails.
     """
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             r = await client.post(
                 f"{WHISPER_URL}/validate",
                 json={"filename": filename},

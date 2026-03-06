@@ -54,6 +54,16 @@ async def update_cover(track_id: str, cover_art: str) -> None:
         _write_raw(tracks)
 
 
+async def update_title(track_id: str, title: str) -> None:
+    async with _lock:
+        tracks = _read_raw()
+        for t in tracks:
+            if t["id"] == track_id:
+                t["title"] = title
+                break
+        _write_raw(tracks)
+
+
 async def update_quality(track_id: str, score: float, rating: str) -> None:
     async with _lock:
         tracks = _read_raw()

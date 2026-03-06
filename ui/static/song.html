@@ -158,7 +158,12 @@ async function loadSong() {
     if (!resp.ok) { showError('Song not found'); return; }
     track = await resp.json();
     document.title = track.title + ' — Bray Music Studio';
-    renderSong();
+    try {
+      renderSong();
+    } catch(renderErr) {
+      showError('Render error: ' + renderErr.message);
+      console.error('renderSong failed:', renderErr);
+    }
   } catch(e) {
     showError('Failed to load song');
     console.error(e);

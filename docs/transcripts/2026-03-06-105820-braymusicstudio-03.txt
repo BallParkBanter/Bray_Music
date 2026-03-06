@@ -1,0 +1,1907 @@
+
+ ▐▛███▜▌   Claude Code v2.1.69
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/projects/Bray_Music
+
+✻ Conversation compacted (ctrl+o for history)
+
+  ⎿  Read ui/lyrics_gen.py (250 lines)
+  ⎿  Referenced file ui/main.py
+  ⎿  Read docker-compose.yml (22 lines)
+  ⎿  Referenced file ui/static/song.html
+  ⎿  Read ui/validation.py (40 lines)
+
+● Let me read the current state of main.py and index.html to implement both
+  changes.
+
+● Read 2 files (ctrl+o to expand)
+
+● Let me read the relevant sections of index.html — the modal CSS and the modal
+  HTML/JS.
+
+● Read 1 file (ctrl+o to expand)
+
+● Now I have the full picture. Let me now look at the readSSEStream function to
+  understand how SSE events are handled, and the doSimpleGen function for Simple
+   mode.
+
+● Searched for 2 patterns (ctrl+o to expand)
+
+● Now I have the full picture. I need to:
+
+  1. Add "Loading AI model..." step — In main.py, modify _run_generation to emit
+   a new model_load step event when lyrics are needed (wrapping the
+  _ensure_model_loaded call). In index.html, add the step to the modal HTML and
+  handle it in STEP_MAP.
+  2. Increase mobile modal font sizes — Bump the CSS values in the mobile media
+  query.
+
+  The approach for the model loading step: Rather than refactoring lyrics_gen.py
+   to return load status, I'll add a new SSE step in main.py that emits before
+  lyrics generation. The lyrics step already shows "AI writing lyrics..." — I'll
+   add a preceding "Loading AI model..." step that activates when vocals need
+  lyrics, and mark it done when lyrics generation starts. This way users see the
+   model load pause.
+
+  Actually, looking more carefully: the _ensure_model_loaded is called inside
+  generate_lyrics() and generate_title(). The cleanest approach is to emit the
+  model_load step in _run_generation before calling generate_lyrics, and have it
+   complete when lyrics generation actually starts. But since
+  _ensure_model_loaded is internal to lyrics_gen.py, I should refactor it
+  slightly to be callable externally, or just add the step around the lyrics
+  call.
+
+  Simplest approach: Add a "Loading AI model..." step that shows right before
+  the lyrics step. I'll emit it as active, call a standalone model check, mark
+  it done, then proceed to lyrics. Let me expose _ensure_model_loaded from
+  lyrics_gen.py.
+
+● Update(ui/lyrics_gen.py)
+  ⎿  Added 1 line, removed 1 line
+      118      return False
+      119  
+      120  
+      121 -async def _ensure_model_loaded(model: str) -> None:           
+      121 +async def ensure_model_loaded(model: str = "gemma3:12b") -> bo
+          +ol:                                                           
+      122      """Check if model is in GPU memory; if not, load it and ve
+           rify."""
+      123      try:
+      124          async with httpx.AsyncClient(timeout=MODEL_LOAD_TIME +
+            15) as client:
+
+● Now update the internal calls to use the new name, and make it return whether
+  a cold load was needed:
+
+● Update(ui/lyrics_gen.py)
+  ⎿  Added 7 lines, removed 2 lines
+      119  
+      120  
+      121  async def ensure_model_loaded(model: str = "gemma3:12b") -> bo
+           ol:
+      122 -    """Check if model is in GPU memory; if not, load it and ve
+          -rify."""                                                      
+      122 +    """Check if model is in GPU memory; if not, load it and ve
+          +rify.                                                         
+      123 +                                                              
+      124 +    Returns True if model had to be loaded (cold start), False
+          + if already warm.                                             
+      125 +    """                                                       
+      126      try:
+      127          async with httpx.AsyncClient(timeout=MODEL_LOAD_TIME +
+            15) as client:
+      128              if await _is_model_loaded(client, model):
+      129                  logger.info(f"Ollama model {model} already loa
+           ded in GPU")
+      127 -                return                                        
+      130 +                return False                                  
+      131  
+      132              # Model not loaded — trigger a load with minimal p
+           rompt
+      133              logger.info(f"Ollama model {model} not in GPU, pre
+           -loading...")
+     ...
+      141                  logger.info(f"Ollama model {model} loaded into
+            GPU (verified)")
+      142              else:
+      143                  logger.warning(f"Ollama model {model} load ret
+           urned OK but not showing in /api/ps")
+      144 +            return True                                       
+      145      except Exception as e:
+      146          logger.warning(f"Model pre-load failed: {e} — will ret
+           ry on actual call")
+      147 +        return True                                           
+      148  
+      149  
+      150  async def generate_lyrics(description: str, genre: str = "", m
+           odel: str = "gemma3:12b") -> str | None:
+
+● Now update the two internal callers to use the new name:
+
+● Update(ui/lyrics_gen.py)
+  ⎿  Added 2 lines, removed 2 lines
+      155      if not description or not description.strip():
+      156          return None
+      157  
+      158 -    await _ensure_model_loaded(model)                         
+      158 +    await ensure_model_loaded(model)                          
+      159  
+      160      template = _GENRE_PROMPT_MAP.get(genre, LYRICS_PROMPT_DEFA
+           ULT)
+      161      prompt = template.format(description=description)
+     ...
+      209      if not description or not description.strip():
+      210          return None
+      211  
+      212 -    await _ensure_model_loaded(model)                         
+      212 +    await ensure_model_loaded(model)                          
+      213  
+      214      prompt = TITLE_PROMPT.format(description=description)
+      215  
+
+● Now update main.py to add the model loading step before lyrics generation:
+
+● Update(ui/main.py)
+  ⎿  Added 16 lines, removed 1 line
+      214      logger.info(f"[GEN {track_id[:8]}] Lyrics provided: {bool(
+           req.lyrics and req.lyrics.strip())} ({len(req.lyrics)} chars)"
+           )
+      215  
+      216      try:
+      217 -        # Step: lyrics generation                             
+      217 +        # Step: ensure Ollama model is loaded (may take 20-25s
+          + on cold start)                                               
+      218          if req.include_vocals and not (req.lyrics and req.lyri
+           cs.strip()):
+      219 +            await emit({"event": "step", "step": "model_load",
+          + "state": "active"})                                          
+      220 +            step_start = time.time()                          
+      221 +            logger.info(f"[GEN {track_id[:8]}] MODEL: Checking
+          + if Ollama model is loaded...")                               
+      222 +            try:                                              
+      223 +                was_cold = await lyrics_gen.ensure_model_loade
+          +d()                                                           
+      224 +                elapsed = time.time() - step_start            
+      225 +                if was_cold:                                  
+      226 +                    logger.info(f"[GEN {track_id[:8]}] MODEL: 
+          +Cold-loaded in {elapsed:.1f}s")                               
+      227 +                else:                                         
+      228 +                    logger.info(f"[GEN {track_id[:8]}] MODEL: 
+          +Already warm ({elapsed:.1f}s)")                               
+      229 +            except Exception as e:                            
+      230 +                elapsed = time.time() - step_start            
+      231 +                logger.warning(f"[GEN {track_id[:8]}] MODEL: P
+          +re-load failed after {elapsed:.1f}s: {e}")                    
+      232 +            await emit({"event": "step", "step": "model_load",
+          + "state": "done"})                                            
+      233 +                                                              
+      234              await emit({"event": "step", "step": "lyrics", "st
+           ate": "active"})
+      235              step_start = time.time()
+      236              logger.info(f"[GEN {track_id[:8]}] LYRICS: Startin
+           g generation via Ollama...")
+
+● Now update index.html — add the model_load step to the modal HTML, the
+  STEP_MAP, and bump mobile font sizes:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line
+      1216    <div class="gen-modal">
+      1217      <h3 id="gen-modal-title">Generating Your Song</h3>
+      1218      <div class="gen-steps" id="gen-steps">
+      1219 +      <div class="gen-step" id="gs-model-load" style="display
+           +:none;"><div class="gen-step-icon">1</div><span>Loading AI mo
+           +del...</span></div>                                          
+      1220        <div class="gen-step" id="gs-lyrics" style="display:non
+            e;"><div class="gen-step-icon">1</div><span>AI writing lyrics
+            ...</span></div>
+      1221        <div class="gen-step" id="gs-submit"><div class="gen-st
+            ep-icon">1</div><span>Submitting to ACE-Step GPU...</span></d
+            iv>
+      1222        <div class="gen-step" id="gs-queue"><div class="gen-ste
+            p-icon">2</div><span>ACE-Step initializing GPU...</span></div
+            >
+
+● Now add model_load to the STEP_MAP and update the handleStepEvent to
+  show/unhide it:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line
+      925  
+      926  // Map backend step names to modal step IDs
+      927  const STEP_MAP = {
+      928 +  model_load: 'gs-model-load',                                
+      929    lyrics: 'gs-lyrics',
+      930    submit: 'gs-submit',
+      931    queue: 'gs-queue',
+
+● Now update handleStepEvent to also unhide the model_load step like it does for
+   lyrics:
+
+● Update(ui/static/index.html)
+  ⎿  Added 5 lines, removed 1 line
+      939  function handleStepEvent(step, state) {
+      940    const ids = STEP_MAP[step];
+      941    if (!ids) return;
+      942 -  // Show lyrics step when it appears (hidden by default)     
+      942 +  // Show hidden steps when they appear                       
+      943 +  if (step === 'model_load') {                                
+      944 +    const mlEl = document.getElementById('gs-model-load');    
+      945 +    if (mlEl) { mlEl.style.display = ''; renumberSteps(); }   
+      946 +  }                                                           
+      947    if (step === 'lyrics') {
+      948      const lyrEl = document.getElementById('gs-lyrics');
+      949      if (lyrEl) { lyrEl.style.display = ''; renumberSteps(); }
+
+● Now update the openGenModal function to also reset the new step (include it in
+   the step list):
+
+● Update(ui/static/index.html)
+  ⎿  Added 3 lines
+      878    document.getElementById('gen-modal').classList.add('show');
+      879    // Reset all steps
+      880    document.querySelectorAll('.gen-step').forEach(s => { s.clas
+           sName = 'gen-step'; s.querySelector('.gen-step-icon').textCont
+           ent = s.id.replace('gs-','')[0].toUpperCase(); });
+      881 +  // Hide optional steps                                      
+      882 +  document.getElementById('gs-model-load').style.display = 'no
+          +ne';                                                          
+      883 +  document.getElementById('gs-lyrics').style.display = 'none';
+      884    ['gs-submit','gs-queue','gs-lm','gs-diffuse','gs-decode','gs
+           -save','gs-cover'].forEach((id,i) => {
+      885      document.getElementById(id).querySelector('.gen-step-icon'
+           ).textContent = (i+1);
+      886    });
+
+● Now bump the mobile modal font sizes:
+
+● Update(ui/static/index.html)
+  ⎿  Added 6 lines, removed 4 lines
+      225    .simple-ex{font-size:11px;padding:6px 10px;white-space:nowra
+           p;overflow:hidden;text-overflow:ellipsis;max-width:calc(50vw -
+            30px);}
+      226  
+      227    /* Generation modal: full width */
+      228 -  .gen-modal{width:calc(100vw - 24px);padding:16px;border-radi
+          -us:16px;}                                                     
+      229 -  .gen-modal h3{font-size:15px;}                              
+      230 -  .gen-step{font-size:12px;gap:8px;}                          
+      228 +  .gen-modal{width:calc(100vw - 24px);padding:20px;border-radi
+          +us:16px;}                                                     
+      229 +  .gen-modal h3{font-size:17px;}                              
+      230 +  .gen-step{font-size:14px;gap:10px;}                         
+      231    .gen-step span{min-width:0;}
+      232 -  .gen-step-icon{width:22px;height:22px;font-size:10px;}      
+      232 +  .gen-step-icon{width:26px;height:26px;font-size:12px;}      
+      233 +  .gen-elapsed{font-size:13px;}                               
+      234 +  .gen-cancel{font-size:14px;padding:10px 24px;}              
+      235  
+      236    /* ── Mobile bottom player bar ── */
+      237    .m-player{display:flex;position:fixed;bottom:0;left:0;right:
+           0;background:rgba(12,8,28,.97);backdrop-filter:blur(20px);bord
+           er-top:1px solid rgba(255,255,255,.12);padding:8px 14px;flex-d
+           irection:column;gap:6px;z-index:200;}
+
+● Now let me verify everything looks correct by reading the modified sections:
+
+● Read 2 files (ctrl+o to expand)
+
+● Everything looks good. Both changes are implemented:
+
+  1. "Loading AI model..." step — When Simple mode generates vocals (no user
+  lyrics), the modal now shows:
+    - Step: "Loading AI model..." (with spinner) — checks Ollama GPU status,
+  cold-loads if needed
+    - Step: "AI writing lyrics..." — actual lyrics generation
+    - Both steps are hidden by default and only appear when needed (vocal tracks
+   without pre-written lyrics)
+  2. Bigger mobile modal fonts — Bumped:
+    - Modal title: 15px → 17px
+    - Step text: 12px → 14px
+    - Step icons: 22x22px/10px → 26x26px/12px
+    - Elapsed timer: added 13px
+    - Cancel/copy buttons: added 14px with 10px padding
+
+  Summary of changes:
+  - ui/lyrics_gen.py — Renamed _ensure_model_loaded → ensure_model_loaded
+  (public), added return value (True = cold start, False = warm)
+  - ui/main.py — Added model_load SSE step before lyrics generation in
+  _run_generation
+  - ui/static/index.html — Added gs-model-load step to modal HTML, added to
+  STEP_MAP and handleStepEvent, increased mobile modal font sizes
+
+  Ready to deploy and test when you want.
+
+✻ Worked for 4m 53s
+
+❯ /remote-control 
+  ⎿  Remote Control disconnected.
+
+❯ /remote-control 
+  ⎿  Remote Control connecting…
+
+  /remote-control is active. Code in CLI or at
+  https://claude.ai/code/session_011z2sEBrjijVR5hD67JHZdt
+
+❯ One more thing - do you see how on step 5 after it was done running it    
+  updated the modal with the actual result of what was done? Is it possible 
+   to do this after each step once it completes showing me the actual       
+  result formatted nicely with emojis?                                      
+                                                                            
+  see image IMG_4543 in \\wsl.localhost\Ubuntu-24.04\home\bobray\projects\P 
+  RIS-automation\screenshots\from_sharex\2026-03 to see what i'm referring  
+  to                                                                        
+
+● Read 1 file (ctrl+o to expand)
+
+● I see it — step 5 updated its text to show "Audio generated in 129.76s" with a
+   timing breakdown. I'll extend this pattern to all steps so each one shows a
+  result summary with emojis when it completes.
+
+  Let me update the backend to send detail text with each step completion, and
+  the frontend to display it.
+
+● Read 1 file (ctrl+o to expand)
+
+● Now let me read the _bg_validate_and_cover section too:
+
+● Read 1 file (ctrl+o to expand)
+
+● Now I have the full picture. I need to add detail fields to all step "done"
+  events in the backend, and handle them in the frontend. Let me make all the
+  backend changes:
+
+● Update(ui/main.py)
+  ⎿  Added 4 lines, removed 1 line
+      224                  elapsed = time.time() - step_start
+      225                  if was_cold:
+      226                      logger.info(f"[GEN {track_id[:8]}] MODEL: 
+           Cold-loaded in {elapsed:.1f}s")
+      227 +                    model_detail = f"\U0001f9e0 AI model loade
+          +d in {elapsed:.1f}s"                                          
+      228                  else:
+      229                      logger.info(f"[GEN {track_id[:8]}] MODEL: 
+           Already warm ({elapsed:.1f}s)")
+      230 +                    model_detail = "\U0001f9e0 AI model ready 
+          +(warm)"                                                       
+      231              except Exception as e:
+      232                  elapsed = time.time() - step_start
+      233                  logger.warning(f"[GEN {track_id[:8]}] MODEL: P
+           re-load failed after {elapsed:.1f}s: {e}")
+      232 -            await emit({"event": "step", "step": "model_load",
+          - "state": "done"})                                            
+      234 +                model_detail = f"\u26a0\ufe0f Model pre-load f
+          +ailed ({elapsed:.1f}s)"                                       
+      235 +            await emit({"event": "step", "step": "model_load",
+          + "state": "done", "detail": model_detail})                    
+      236  
+      237              await emit({"event": "step", "step": "lyrics", "st
+           ate": "active"})
+      238              step_start = time.time()
+
+● Now the lyrics step done detail:
+
+● Update(ui/main.py)
+  ⎿  Added 5 lines, removed 1 line
+      237              await emit({"event": "step", "step": "lyrics", "st
+           ate": "active"})
+      238              step_start = time.time()
+      239              logger.info(f"[GEN {track_id[:8]}] LYRICS: Startin
+           g generation via Ollama...")
+      240 +            lyrics_detail = None                              
+      241              try:
+      242                  generated_lyrics = await lyrics_gen.generate_l
+           yrics(req.description, genre=genre_hint)
+      243                  elapsed = time.time() - step_start
+     ...
+      245                      req.lyrics = generated_lyrics
+      246                      logger.info(f"[GEN {track_id[:8]}] LYRICS:
+            Generated {len(generated_lyrics)} chars in {elapsed:.1f}s")
+      247                      await emit({"event": "lyrics", "text": gen
+           erated_lyrics})
+      248 +                    lyrics_detail = f"\u270d\ufe0f Wrote {len(
+          +generated_lyrics)} chars of lyrics in {elapsed:.1f}s"         
+      249                  else:
+      250                      logger.warning(f"[GEN {track_id[:8]}] LYRI
+           CS: Returned empty after {elapsed:.1f}s, proceeding without")
+      251 +                    lyrics_detail = f"\u26a0\ufe0f No lyrics g
+          +enerated ({elapsed:.1f}s)"                                    
+      252              except Exception as e:
+      253                  elapsed = time.time() - step_start
+      254                  logger.warning(f"[GEN {track_id[:8]}] LYRICS: 
+           Failed after {elapsed:.1f}s: {e}")
+      252 -            await emit({"event": "step", "step": "lyrics", "st
+          -ate": "done"})                                                
+      255 +                lyrics_detail = f"\u26a0\ufe0f Lyrics failed (
+          +{elapsed:.1f}s)"                                              
+      256 +            await emit({"event": "step", "step": "lyrics", "st
+          +ate": "done", "detail": lyrics_detail})                       
+      257  
+      258          # Generate title while Ollama model is still loaded (a
+           voids 22s reload later)
+      259          if needs_ai_title:
+
+● Now the save step — add detail when track is saved:
+
+● Update(ui/main.py)
+  ⎿  Added 4 lines
+      335          await history_mod.append(track)
+      336          logger.info(f"[GEN {track_id[:8]}] SAVED: '{track.titl
+           e}' | {filename} | {duration:.1f}s | seed={result_data['seed']
+           }")
+      337  
+      338 +        dur_m = int(duration // 60)                           
+      339 +        dur_s = int(duration % 60)                            
+      340 +        save_detail = f"\U0001f4be Saved \u2014 {dur_m}:{dur_s
+          +:02d} \u00b7 FLAC \u00b7 seed {result_data['seed']}"          
+      341 +        await emit({"event": "step", "step": "save", "state": 
+          +"done", "detail": save_detail})                               
+      342          await emit({"event": "track", "track": track.model_dum
+           p()})
+      343  
+      344          # Validate + cover art (runs inline so SSE stream stay
+           s open)
+
+● Now the validate step done detail:
+
+● Update(ui/main.py)
+  ⎿  Added 10 lines, removed 1 line
+      402          await emit({"event": "step", "step": "validate", "stat
+           e": "active"})
+      403          step_start = time.time()
+      404          logger.info(f"[POST {tid}] WHISPER: Starting validatio
+           n for {track.filename}...")
+      405 +        validate_detail = None                                
+      406          try:
+      407              result = await validation_mod.validate_track(track
+           .filename)
+      408              elapsed = time.time() - step_start
+      409              if result:
+      410                  quality_rating = result["quality_rating"]
+      411 +                score_pct = round((result["quality_score"] or 
+          +0) * 100)                                                     
+      412                  await history_mod.update_quality(
+      413                      track.id, result["quality_score"], quality
+           _rating,
+      414                  )
+     ...
+      417                      "rating": quality_rating,
+      418                      "score": result["quality_score"],
+      419                  })
+      420 +                rating_emoji = {                              
+      421 +                    "GREAT": "\U0001f31f", "GOOD": "\u2705",  
+      422 +                    "FAIR": "\U0001f7e1", "POOR": "\U0001f534"
+          +,                                                             
+      423 +                }.get(quality_rating, "\U0001f3a4")           
+      424 +                validate_detail = f"{rating_emoji} Vocal quali
+          +ty: {quality_rating} ({score_pct}%) in {elapsed:.1f}s"        
+      425                  logger.info(f"[POST {tid}] WHISPER: {quality_r
+           ating} (score={result['quality_score']:.1f}) in {elapsed:.1f}s
+           ")
+      426              else:
+      427                  logger.warning(f"[POST {tid}] WHISPER: No resu
+           lt after {elapsed:.1f}s")
+      428 +                validate_detail = f"\u26a0\ufe0f Validation un
+          +available ({elapsed:.1f}s)"                                   
+      429          except Exception as e:
+      430              elapsed = time.time() - step_start
+      431              logger.warning(f"[POST {tid}] WHISPER: Failed afte
+           r {elapsed:.1f}s: {e}")
+      424 -        await emit({"event": "step", "step": "validate", "stat
+          -e": "done"})                                                  
+      432 +            validate_detail = f"\u26a0\ufe0f Validation failed
+          + ({elapsed:.1f}s)"                                            
+      433 +        await emit({"event": "step", "step": "validate", "stat
+          +e": "done", "detail": validate_detail})                       
+      434  
+      435      # Step 2: Conditional cover art
+      436      # Generate cover art unless whisper explicitly rated it FA
+           IR or POOR
+
+● Now the cover art step done detail:
+
+● Read 1 file (ctrl+o to expand)
+
+● Update(ui/main.py)
+  ⎿  Added 6 lines, removed 1 line
+      438      logger.info(f"[POST {tid}] COVER: should_generate={should_
+           generate_cover} (instrumental={is_instrumental}, quality={qual
+           ity_rating})")
+      439  
+      440      await emit({"event": "step", "step": "cover", "state": "ac
+           tive"})
+      441 +    cover_detail = None                                       
+      442      if should_generate_cover:
+      443          step_start = time.time()
+      444          logger.info(f"[POST {tid}] COVER: Generating AI cover 
+           art...")
+     ...
+      448              if cover_file:
+      449                  await history_mod.update_cover(track.id, cover
+           _file)
+      450                  await emit({"event": "cover_art", "cover_art":
+            cover_file})
+      451 +                cover_detail = f"\U0001f3a8 Cover art created 
+          +in {elapsed:.1f}s"                                            
+      452                  logger.info(f"[POST {tid}] COVER: Saved {cover
+           _file} in {elapsed:.1f}s")
+      453              else:
+      454                  logger.warning(f"[POST {tid}] COVER: Returned 
+           empty after {elapsed:.1f}s")
+      455 +                cover_detail = f"\u26a0\ufe0f Cover art empty 
+          +({elapsed:.1f}s)"                                             
+      456          except Exception as e:
+      457              elapsed = time.time() - step_start
+      458              logger.error(f"[POST {tid}] COVER: Failed after {e
+           lapsed:.1f}s: {e}")
+      459 +            cover_detail = f"\u26a0\ufe0f Cover art failed ({e
+          +lapsed:.1f}s)"                                                
+      460      else:
+      461          logger.info(f"[POST {tid}] COVER: Skipped — using grad
+           ient fallback")
+      458 -    await emit({"event": "step", "step": "cover", "state": "do
+          -ne"})                                                         
+      462 +        cover_detail = "\U0001f3a8 Using gradient cover (quali
+          +ty too low for AI art)"                                       
+      463 +    await emit({"event": "step", "step": "cover", "state": "do
+          +ne", "detail": cover_detail})                                 
+      464  
+      465      logger.info(f"[POST {tid}] Post-processing complete")
+      466      await emit({"event": "done"})
+
+● Now update the frontend to use the detail field. I need to:
+  1. Pass the detail to handleStepEvent
+  2. Update the step span text when detail is provided
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line, removed 1 line
+      520          if (!trimmed.startsWith('data: ')) continue;
+      521          try {
+      522            const evt = JSON.parse(trimmed.slice(6));
+      523 -          if (evt.event === 'step') handleStepEvent(evt.step, 
+          -evt.state);                                                   
+      523 +          if (evt.event === 'step') handleStepEvent(evt.step, 
+          +evt.state, evt.detail);                                       
+      524            else if (evt.event === 'progress') updateProgressMes
+           sage(evt.message);
+      525            else if (evt.event === 'lyrics' && evt.text) { const
+            ta = document.getElementById('ta-lyrics'); if (ta) ta.value =
+            evt.text; }
+      526            else if (evt.event === 'quality') {
+
+● Now update handleStepEvent to accept and use the detail parameter:
+
+● Update(ui/static/index.html)
+  ⎿  Added 7 lines, removed 1 line
+      941    cover: 'gs-cover',
+      942  };
+      943  
+      944 -function handleStepEvent(step, state) {                       
+      944 +function handleStepEvent(step, state, detail) {               
+      945    const ids = STEP_MAP[step];
+      946    if (!ids) return;
+      947    // Show hidden steps when they appear
+     ...
+      962    } else {
+      963      setGenStep(ids, state);
+      964    }
+      965 +  // Update step text with result detail when done            
+      966 +  if (state === 'done' && detail) {                           
+      967 +    const targetId = Array.isArray(ids) ? ids[ids.length - 1] 
+          +: ids;                                                        
+      968 +    const el = document.getElementById(targetId);             
+      969 +    if (el) el.querySelector('span').textContent = detail;    
+      970 +  }                                                           
+      971  }
+      972  
+      973  function renumberSteps() {
+
+● Now I also need to add details for the encode/FLAC and save steps. The encode
+  step is handled by ACE-Step progress messages, which already update via
+  updateProgressMessage. But the save step is emitted from the backend — I
+  already added it. Let me also check: the "submit" and "queue" steps come from
+  gradio_client.py, so those would need changes there too. Let me check what
+  events ACE-Step streaming emits:
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● The gradio_client.py emits step events for submit, queue, decode, and save.
+  The save done in gradio_client is now overridden by the one I added in main.py
+   with the detail. But there's a conflict — gradio_client also emits save done.
+   Let me check the flow more carefully:
+
+● Read 1 file (ctrl+o to expand)
+
+● The gradio_client emits save done after downloading the FLAC, then main.py
+  also emits save done with the detail after saving to history. The second one
+  (with detail) will override the first in the frontend since it updates the
+  same step — that's fine, the detail text will show up.
+
+  But actually, I realize the decode done from gradio_client doesn't have detail
+   either. Let me add details to the gradio_client steps too for a complete
+  experience. Let me check what info is available at each point:
+
+● Read 1 file (ctrl+o to expand)
+
+● The gradio_client steps (submit, queue, decode) are quick transitions that
+  don't carry much result data. Rather than adding details to every intermediate
+   ACE-Step step, I'll focus on adding details to the ones where there's
+  meaningful info. The submit/queue/decode steps pass very quickly and the audio
+   generation timing already gets detailed treatment via updateProgressMessage.
+  The main value is in the steps the user actually waits for: model load,
+  lyrics, save, validate, cover.
+
+  Let me also add a detail for the decode step since it transitions to FLAC:
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 1 line, removed 1 line
+      407          if not entered_generating:
+      408              yield {"event": "step", "step": "queue", "state": 
+           "done"}
+      409          yield {"event": "step", "step": "generate", "state": "
+           done"}
+      410 -        yield {"event": "step", "step": "decode", "state": "do
+          -ne"}                                                          
+      410 +        yield {"event": "step", "step": "decode", "state": "do
+          +ne", "detail": "\U0001f4bf Encoded to lossless FLAC"}         
+      411          yield {"event": "step", "step": "save", "state": "acti
+           ve"}
+      412  
+      413          # Step 6: Download FLAC
+
+● Now let me also add details for the submit and queue steps:
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 1 line, removed 1 line
+      327              yield {"event": "error", "message": f"Submit faile
+           d: {e}"}
+      328              return
+      329  
+      330 -        yield {"event": "step", "step": "submit", "state": "do
+          -ne"}                                                          
+      330 +        yield {"event": "step", "step": "submit", "state": "do
+          +ne", "detail": "\U0001f680 Submitted to ACE-Step"}            
+      331          yield {"event": "step", "step": "queue", "state": "act
+           ive"}
+      332  
+      333          # Step 2-5: Poll SSE stream from ACE-Step
+
+● Now the queue done steps (there are two places):
+
+● Read 1 file (ctrl+o to expand)
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 1 line, removed 1 line
+      362                          if event_type == "generating":
+      363                              if not entered_generating:
+      364                                  entered_generating = True
+      365 -                                yield {"event": "step", "step"
+          -: "queue", "state": "done"}                                   
+      365 +                                yield {"event": "step", "step"
+          +: "queue", "state": "done", "detail": "\u26a1 GPU initialized"
+          +}                                                             
+      366                                  yield {"event": "step", "step"
+           : "generate", "state": "active"}
+      367  
+      368                              try:
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 1 line, removed 1 line
+      405  
+      406          # Mark generation phases done
+      407          if not entered_generating:
+      408 -            yield {"event": "step", "step": "queue", "state": 
+          -"done"}                                                       
+      408 +            yield {"event": "step", "step": "queue", "state": 
+          +"done", "detail": "\u26a1 GPU initialized"}                   
+      409          yield {"event": "step", "step": "generate", "state": "
+           done"}
+      410          yield {"event": "step", "step": "decode", "state": "do
+           ne", "detail": "\U0001f4bf Encoded to lossless FLAC"}
+      411          yield {"event": "step", "step": "save", "state": "acti
+           ve"}
+
+● The generate done step doesn't get a detail here because the audio generation
+  timing is already handled by updateProgressMessage() in the frontend which
+  updates the step text directly. That's the one you saw in the screenshot.
+
+  Let me verify the frontend changes are all correct:
+
+● Read 1 file (ctrl+o to expand)
+
+● Good. Let me verify the complete state of all changes:
+
+● Read 1 file (ctrl+o to expand)
+
+● Everything looks good. Here's a summary of the changes:
+
+  Backend (main.py) — Added detail field to step "done" events:
+  - model_load: "🧠 AI model ready (warm)" or "🧠 AI model loaded in X.Xs"
+  - lyrics: "✍️ Wrote X chars of lyrics in X.Xs"
+  - save: "💾 Saved — 3:42 · FLAC · seed 12345"
+  - validate: "🌟 Vocal quality: GREAT (85%) in X.Xs" (with emoji per rating)
+  - cover: "🎨 Cover art created in X.Xs" or "🎨 Using gradient cover (quality
+  too low)"
+
+  Backend (gradio_client.py) — Added detail field to ACE-Step step events:
+  - submit: "🚀 Submitted to ACE-Step"
+  - queue: "⚡ GPU initialized"
+  - decode: "💿 Encoded to lossless FLAC"
+
+  Frontend (index.html) — Updated handleStepEvent(step, state, detail) to
+  replace the step's span text with the detail when a step completes, and pass
+  evt.detail from the SSE parser.
+
+  Each step will now show its result summary with emojis when it completes,
+  replacing the generic "Submitting to ACE-Step GPU..." text with something like
+   "🚀 Submitted to ACE-Step". Ready to deploy and test.
+
+✻ Baked for 4m 23s
+
+❯ ok, now for the copy details button the modal that pops up when it is     
+  complete - i need that to copy all the detailed status now...so it will   
+  need to get evertying you just added too                                  
+                                                                            
+  and the timeout before the modal goes away - how long is that?  5         
+  seconds?  can we remove that so i have to click the close button?         
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● Let me read the copyGenDetails function again and the surrounding context:
+
+● Read 1 file (ctrl+o to expand)
+
+● The copyGenDetails function already copies the span text of each step, which
+  now includes the detail text (since we replace the span content on
+  completion). So it's actually already working correctly — when steps complete
+  with details, the span text IS the detail.
+
+  But there's also the timing breakdown detail element (gs-timing-detail) that
+  shows below the audio generation step. Let me include that too:
+
+● Update(ui/static/index.html)
+  ⎿  Added 7 lines
+      920      const text = s.querySelector('span').textContent;
+      921      return icon + ' ' + text;
+      922    });
+      923 +  // Include timing breakdown if present                      
+      924 +  const timingEl = document.getElementById('gs-timing-detail')
+          +;                                                             
+      925 +  if (timingEl && timingEl.textContent.trim()) {              
+      926 +    const diffuseIdx = lines.findIndex(l => l.includes('Audio 
+          +generated') || l.includes('Generating audio'));               
+      927 +    if (diffuseIdx >= 0) lines.splice(diffuseIdx + 1, 0, '  ' 
+          ++ timingEl.textContent.trim());                               
+      928 +    else lines.push('  ' + timingEl.textContent.trim());      
+      929 +  }                                                           
+      930    const detail = title + '\n' + elapsed + '\n\n' + lines.join(
+           '\n');
+      931    navigator.clipboard.writeText(detail).then(() => {
+      932      const btn = document.getElementById('gen-copy');
+
+● Now remove all four setTimeout(closeGenModal, 5000) calls:
+
+● Update(ui/static/index.html)
+  ⎿  Removed 2 lines
+      656        showSimpleStatus('Your song is ready!', '#10b981');
+      657        document.getElementById('gen-cancel').textContent = 'Don
+           e \u2014 Close';
+      658        setTimeout(() => setGenStep('gs-cover', 'done'), 3000);
+      659 -      setTimeout(closeGenModal, 5000);                        
+      659      } else if (!streamError) {
+      660        // Stream ended without track — poll history for it
+      661        showSimpleStatus('Stream ended, checking for your song..
+           .', '#fbbf24');
+     ...
+      1096        showStatus('Song generated! Cover art creating in backg
+            round\u2026', '#10b981');
+      1097        document.getElementById('gen-cancel').textContent = 'Do
+            ne \u2014 Close';
+      1098        setTimeout(() => setGenStep('gs-cover', 'done'), 3000);
+      1100 -      setTimeout(closeGenModal, 5000);                       
+      1099      } else if (!streamError) {
+      1100        showStatus('Stream ended, checking for your song...', '
+            #fbbf24');
+      1101        trackData = await pollForNewTrack();
+
+● Now the other two (the poll fallback paths):
+
+● Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(ui/static/index.html)
+  ⎿  Removed 1 line
+      668          showSimpleStatus('Your song is ready!', '#10b981');
+      669          document.getElementById('gen-cancel').textContent = 'D
+           one \u2014 Close';
+      670          markAllStepsDone();
+      671 -        setTimeout(closeGenModal, 5000);                      
+      671        }
+      672      }
+      673  
+
+● Update(ui/static/index.html)
+  ⎿  Removed 1 line
+      1106          showStatus('Song generated!', '#10b981');
+      1107          document.getElementById('gen-cancel').textContent = '
+            Done \u2014 Close';
+      1108          markAllStepsDone();
+      1109 -        setTimeout(closeGenModal, 5000);                     
+      1109        }
+      1110      }
+      1111  
+
+● Let me verify no auto-close timeouts remain:
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● Done. Two changes:
+
+  1. Copy Details — now includes the timing breakdown detail line (inserted
+  after the audio generation step in the copied text). The step detail text was
+  already being captured since we replace the span content.
+  2. Auto-close removed — all four setTimeout(closeGenModal, 5000) calls
+  removed. The modal stays open until you tap "Done — Close".
+
+✻ Brewed for 48s
+
+❯ andif the steps complete correctly/successfully on the modal - the "done  
+  - close" button that appears...can we make that a green color to indicate 
+   success instead of a red color?                                          
+
+● Read 1 file (ctrl+o to expand)
+
+● The hover is red-tinted. I'll add a .gen-cancel.success class for the green
+  state, and apply it when we set the button text to "Done — Close".
+
+● Update(ui/static/index.html)
+  ⎿  Added 2 lines
+      129  .gen-elapsed{font-size:12px;color:rgba(255,255,255,.5);text-al
+           ign:center;margin-top:8px;}
+      130  .gen-cancel{display:block;margin:12px auto 0;background:rgba(2
+           55,255,255,.08);border:1px solid rgba(255,255,255,.15);border-
+           radius:10px;color:rgba(255,255,255,.7);font-family:'Ubuntu',sa
+           ns-serif;font-size:13px;padding:8px 24px;cursor:pointer;transi
+           tion:all .2s;}
+      131  .gen-cancel:hover{background:rgba(239,68,68,.15);border-color:
+           rgba(239,68,68,.3);color:#fca5a5;}
+      132 +.gen-cancel.success{background:rgba(16,185,129,.15);border-col
+          +or:rgba(16,185,129,.4);color:#6ee7b7;}                        
+      133 +.gen-cancel.success:hover{background:rgba(16,185,129,.25);bord
+          +er-color:rgba(16,185,129,.5);color:#a7f3d0;}                  
+      134  
+      135  /* ─── Mobile (Suno-inspired) ────────────────────────────────
+           ──────────────── */
+      136  @media (max-width: 900px) {
+
+● Now add the success class wherever we set the button text to "Done — Close":
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● Update(ui/static/index.html)
+  ⎿  Added 4 lines, removed 4 lines
+      656        playTrackDirect(trackData);
+      657        loadHistory();
+      658        showSimpleStatus('Your song is ready!', '#10b981');
+      659 -      document.getElementById('gen-cancel').textContent = 'Don
+          -e \u2014 Close';                                              
+      659 +      const _gc = document.getElementById('gen-cancel'); _gc.t
+          +extContent = 'Done \u2014 Close'; _gc.classList.add('success')
+          +;                                                             
+      660        setTimeout(() => setGenStep('gs-cover', 'done'), 3000);
+      661      } else if (!streamError) {
+      662        // Stream ended without track — poll history for it
+     ...
+      668          playTrackDirect(trackData);
+      669          loadHistory();
+      670          showSimpleStatus('Your song is ready!', '#10b981');
+      671 -        document.getElementById('gen-cancel').textContent = 'D
+          -one \u2014 Close';                                            
+      671 +        const _gc = document.getElementById('gen-cancel'); _gc
+          +.textContent = 'Done \u2014 Close'; _gc.classList.add('success
+          +');                                                           
+      672          markAllStepsDone();
+      673        }
+      674      }
+     ...
+      1095        playTrackDirect(trackData);
+      1096        loadHistory();
+      1097        showStatus('Song generated! Cover art creating in backg
+            round\u2026', '#10b981');
+      1098 -      document.getElementById('gen-cancel').textContent = 'Do
+           -ne \u2014 Close';                                            
+      1098 +      const _gc = document.getElementById('gen-cancel'); _gc.
+           +textContent = 'Done \u2014 Close'; _gc.classList.add('success
+           +');                                                          
+      1099        setTimeout(() => setGenStep('gs-cover', 'done'), 3000);
+      1100      } else if (!streamError) {
+      1101        showStatus('Stream ended, checking for your song...', '
+            #fbbf24');
+     ...
+      1106          playTrackDirect(trackData);
+      1107          loadHistory();
+      1108          showStatus('Song generated!', '#10b981');
+      1109 -        document.getElementById('gen-cancel').textContent = '
+           -Done \u2014 Close';                                          
+      1109 +        const _gc = document.getElementById('gen-cancel'); _g
+           +c.textContent = 'Done \u2014 Close'; _gc.classList.add('succe
+           +ss');                                                        
+      1110          markAllStepsDone();
+      1111        }
+      1112      }
+
+● Now reset the class when the modal opens:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line, removed 1 line
+      893      const s = elapsed % 60;
+      894      document.getElementById('gen-elapsed').textContent = 'Elap
+           sed: ' + (m > 0 ? m + 'm ' : '') + s + 's';
+      895    }, 1000);
+      896 -  document.getElementById('gen-cancel').textContent = 'Cancel'
+          -;                                                             
+      896 +  const cancelBtn = document.getElementById('gen-cancel'); can
+          +celBtn.textContent = 'Cancel'; cancelBtn.classList.remove('suc
+          +cess');                                                       
+      897  }
+      898  
+      899  function setGenStep(stepId, state) {
+
+● Done. The "Done — Close" button now shows in green (emerald tint matching the
+  success color scheme), while "Cancel" stays neutral and "Close" on error stays
+   with the red hover.
+
+❯ ok, has all this been applied?  will it all work?  do you have to restart 
+   the container?                                                           
+
+● The changes are saved locally but not deployed yet. The container on ROG-STRIX
+   is still running the old code. Let me first check for a potential issue — I
+  used const _gc in 4 places, which will break if two are in the same function
+  scope.
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● Lines 659 and 671 are both in doSimpleGen, and 1098 and 1109 are both in doGen
+   — two const _gc in the same function scope will throw a SyntaxError. Let me
+  fix by using block scoping with braces:
+
+● Update(ui/static/index.html)
+  ⎿  Added 4 lines, removed 4 lines
+      656        playTrackDirect(trackData);
+      657        loadHistory();
+      658        showSimpleStatus('Your song is ready!', '#10b981');
+      659 -      const _gc = document.getElementById('gen-cancel'); _gc.t
+          -extContent = 'Done \u2014 Close'; _gc.classList.add('success')
+          -;                                                             
+      659 +      { const b = document.getElementById('gen-cancel'); b.tex
+          +tContent = 'Done \u2014 Close'; b.classList.add('success'); } 
+      660        setTimeout(() => setGenStep('gs-cover', 'done'), 3000);
+      661      } else if (!streamError) {
+      662        // Stream ended without track — poll history for it
+     ...
+      668          playTrackDirect(trackData);
+      669          loadHistory();
+      670          showSimpleStatus('Your song is ready!', '#10b981');
+      671 -        const _gc = document.getElementById('gen-cancel'); _gc
+          -.textContent = 'Done \u2014 Close'; _gc.classList.add('success
+          -');                                                           
+      671 +        { const b = document.getElementById('gen-cancel'); b.t
+          +extContent = 'Done \u2014 Close'; b.classList.add('success'); 
+          +}                                                             
+      672          markAllStepsDone();
+      673        }
+      674      }
+     ...
+      1095        playTrackDirect(trackData);
+      1096        loadHistory();
+      1097        showStatus('Song generated! Cover art creating in backg
+            round\u2026', '#10b981');
+      1098 -      const _gc = document.getElementById('gen-cancel'); _gc.
+           -textContent = 'Done \u2014 Close'; _gc.classList.add('success
+           -');                                                          
+      1098 +      { const b = document.getElementById('gen-cancel'); b.te
+           +xtContent = 'Done \u2014 Close'; b.classList.add('success'); 
+           +}                                                            
+      1099        setTimeout(() => setGenStep('gs-cover', 'done'), 3000);
+      1100      } else if (!streamError) {
+      1101        showStatus('Stream ended, checking for your song...', '
+            #fbbf24');
+     ...
+      1106          playTrackDirect(trackData);
+      1107          loadHistory();
+      1108          showStatus('Song generated!', '#10b981');
+      1109 -        const _gc = document.getElementById('gen-cancel'); _g
+           -c.textContent = 'Done \u2014 Close'; _gc.classList.add('succe
+           -ss');                                                        
+      1109 +        { const b = document.getElementById('gen-cancel'); b.
+           +textContent = 'Done \u2014 Close'; b.classList.add('success')
+           +; }                                                          
+      1110          markAllStepsDone();
+      1111        }
+      1112      }
+
+● Good, that fixes the scoping issue. Now to deploy — yes, you need to scp the
+  files and rebuild the container:
+
+● Bash(scp /home/bobray/projects/Bray_Music/ui/main.py
+      /home/bobray/projects/Bray_Music/ui/lyrics_gen.py
+      /home/bobray/projects/Bray_Music/ui/static/index.html /home/bo…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "cd /home/bobray/ace-step && docker compose
+      build --no-cache ui && docker compose up -d ui")
+  ⎿  time="2026-03-06T09:40:55-05:00" level=warning msg="Docker Compose is
+     configured to build using Bake, but buildx isn't installed"
+     #0 building with "default" instance using docker driver
+     … +219 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● Deployed and running. Let me verify the container started cleanly:
+
+● Bash(ssh bobray@192.168.1.153 "docker logs bray-music-ui --tail 5")
+  ⎿  INFO:     Started server process [1]
+     INFO:     Waiting for application startup.
+     INFO:     Application startup complete.
+     … +2 lines (ctrl+o to expand)
+
+● All deployed and running. Here's what changed:
+
+  - Step details with emojis — every step updates its text with a result summary
+   when complete
+  - Copy Details — now includes the timing breakdown line from audio generation
+  - No auto-close — modal stays open until you tap "Done — Close"
+  - Green success button — "Done — Close" shows in emerald green; "Cancel" stays
+   neutral, errors stay red
+
+  Go ahead and test on mobile.
+
+✻ Churned for 54s
+
+❯ did you test?  i want my mobile test to work but i want to know that it   
+  will before I run it                                                      
+
+● Bash(ssh bobray@192.168.1.153 "docker exec bray-music-ui python -m pytest
+      tests/unit tests/api -v" 2>&1)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  (timeout 1m)
+
+● Read 1 file (ctrl+o to expand)
+
+● Tests are still running. Let me wait for the full output:
+
+● Bash(sleep 5 && cat
+      /tmp/claude-1000/-home-bobray-projects-Bray-Music/tasks/bbfqjuhfc.output |
+       tail -20)
+  ⎿  tests/unit/test_history.py::test_remove_existing PASSED
+        [ 56%]
+     tests/unit/test_history.py::test_remove_nonexistent PASSED
+     … +20 lines (ctrl+o to expand)
+  ⎿  (timeout 15s)
+
+● One test failed. Let me get the full output:
+
+● Bash(sleep 3 && cat
+      /tmp/claude-1000/-home-bobray-projects-Bray-Music/tasks/bbfqjuhfc.output |
+       grep -A 30 "FAILED\|ERRORS\|short test")
+  ⎿  tests/api/test_endpoints.py::test_generate_stream_success FAILED
+        [ 95%]
+     tests/api/test_endpoints.py::test_generate_stream_error
+  ⎿  (timeout 15s)
+
+● Bash(sleep 5 && cat
+      /tmp/claude-1000/-home-bobray-projects-Bray-Music/tasks/bbfqjuhfc.output)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform linux -- Python 3.11.15, pytest-8.3.0, pluggy-1.6.0 -- /usr/l
+     … +132 lines (ctrl+o to expand)
+  ⎿  (timeout 15s)
+
+● The two test failures are from a pre-existing issue — the test mocks don't
+  accept the genre_hint keyword argument that generate_streaming passes. This
+  isn't from our changes. Let me fix the test mocks:
+
+● Read 1 file (ctrl+o to expand)
+
+● Both mocks need **kwargs to accept the genre_hint parameter:
+
+● Update(ui/tests/api/test_endpoints.py)
+  ⎿  Added 1 line, removed 1 line
+      202      fake_flac = config.AUDIO_DIR / "stream-output.flac"
+      203      fake_flac.write_bytes(b"FLAC")
+      204  
+      205 -    async def fake_streaming(req):                            
+      205 +    async def fake_streaming(req, **kwargs):                  
+      206          yield {"event": "step", "step": "submit", "state": "do
+           ne"}
+      207          yield {"event": "step", "step": "queue", "state": "act
+           ive"}
+      208          yield {"event": "step", "step": "queue", "state": "don
+           e"}
+
+● Update(ui/tests/api/test_endpoints.py)
+  ⎿  Added 1 line, removed 1 line
+      260  @pytest.mark.asyncio
+      261  async def test_generate_stream_error(test_client, patch_output
+           s):
+      262      """Test /generate-stream handles errors from ACE-Step."""
+      263 -    async def fake_streaming_error(req):                      
+      263 +    async def fake_streaming_error(req, **kwargs):            
+      264          yield {"event": "step", "step": "submit", "state": "do
+           ne"}
+      265          yield {"event": "step", "step": "queue", "state": "act
+           ive"}
+      266          yield {"event": "error", "message": "GPU out of memory
+           "}
+
+● Now redeploy and retest:
+
+● Bash(scp /home/bobray/projects/Bray_Music/ui/tests/api/test_endpoints.py
+      bobray@192.168.1.153:/home/bobray/ace-step/ui/tests/api/test_endpoints.py)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "cd /home/bobray/ace-step && docker compose
+      build --no-cache ui && docker compose up -d ui" 2>&1 | tail -10)
+  ⎿  #11 DONE 0.3s
+
+     #12 [ui] resolving provenance for metadata file
+     … +10 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● Bash(ssh bobray@192.168.1.153 "docker exec bray-music-ui python -m pytest
+      tests/unit tests/api -v" 2>&1)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform linux -- Python 3.11.15, pytest-8.3.0, pluggy-1.6.0 -- /usr/l
+     … +57 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● 46/46 tests passed. All green. Go ahead and test on mobile.
+
+✻ Baked for 3m 24s
+
+● Background command "Run unit and API tests in the container" failed with exit
+code 1
+
+● That was the first test run (before the fix). The second run with the fix
+  already passed — 46/46 all green. You're good to test on mobile.
+
+❯ ok, just started another test....do you see my description/caption?       
+  hahahaha                                                                  
+
+● Bash(ssh bobray@192.168.1.153 "docker logs bray-music-ui --tail 20")
+  ⎿  INFO:     192.168.1.103:53948 - "POST /generate-stream HTTP/1.1" 200 O
+     K
+     INFO:     192.168.1.103:53952 - "GET /history?sort=newest&search= HTTP
+     … +19 lines (ctrl+o to expand)
+
+● An emo song about having a peanut allergy — that's amazing. Model loaded warm,
+   lyrics generated (1339 chars in 16s), title generating now. It's cooking!
+
+❯ ok, so my test is done...                                                 
+                                                                            
+  when i use the copy details button on the modal when it's all done here   
+  is what gets pasted:                                                      
+  Generating:%20Write%20an%20alternative%20emo%20song%20about%20having%20a% 
+  20peanut%20allergy%0AElapsed%3A%205m%2059s%0A%0A%E2%9C%93%20%F0%9F%A7%A0% 
+  20AI%20model%20ready%20(warm)%0A%E2%9C%93%20%E2%9C%8D%EF%B8%8F%20Wrote%20 
+  1339%20chars%20of%20lyrics%20in%2016.2s%0A%E2%9C%93%20%F0%9F%9A%80%20Subm 
+  itted%20to%20ACE-Step%0A%E2%9C%93%20%E2%9A%A1%20GPU%20initialized%0A%E2%9 
+  C%93%20AI%20composing%20song%20structure...%0A%E2%9C%93%20%F0%9F%8E%B5%20 
+  Audio%20generated%20in%20116.96s%0A%20%20%F0%9F%8E%B5%20Total%3A%20116.96 
+  s%20%C2%B7%20LM%3A%2074.33s%20%C2%B7%20DiT%3A%2042.63s%0A%F0%9F%94%A7%20P 
+  rocessing%3A%200.93s%20%C2%B7%20FLAC%20encode%3A%200.93s%0A%E2%9C%93%20%F 
+  0%9F%92%BF%20Encoded%20to%20lossless%20FLAC%0A%E2%9C%93%20%F0%9F%92%BE%20 
+  Saved%20%E2%80%94%203%3A38%20%C2%B7%20FLAC%20%C2%B7%20seed%202105496054%0 
+  A%E2%9C%93%20%F0%9F%8C%9F%20Vocal%20quality%3A%20GREAT%20(100%25)%20in%20 
+  59.1s%0A%E2%9C%93%20%F0%9F%8E%A8%20Cover%20art%20created%20in%2052.2s     
+                                                                            
+  that doesn't look right - can we make this markdown format?  and it looks 
+   like it is missing a ton of details...                                   
+                                                                            
+  aslo, go look at IMG_4546 in \\wsl.localhost\Ubuntu-24.04\home\bobray\pro 
+  jects\PRIS-automation\screenshots\from_sharex\2026-03 --- a few things on 
+   the modal text:                                                          
+  - what does ai model ready (warm) mean?  like what ai model?  where?      
+  - then gpu initialized - kind of teh same question...which gpu?           
+  - encoded to lossless flac - does it do other versions too like mp3 or is 
+   flac the only one?                                                       
+  - vocal quality great - needs to say verfied in 59.1s...needs the word    
+  "verified"                                                                
+  - where is the title generation step?  I don't see that anywhere          
+
+● Read 2 files (ctrl+o to expand)
+
+● Good, I can see everything. Let me address all the issues:
+
+  1. Copy Details — URL-encoded mess, needs clean markdown format
+  2. "AI model ready (warm)" — vague, should say which model and where (e.g.,
+  "Ollama gemma3:12b ready on Optimus")
+  3. "GPU initialized" — should say which GPU (e.g., "ACE-Step GPU ready (GTX
+  1080 Ti)")
+  4. "Encoded to lossless FLAC" — FLAC is the only format, so just say "Encoded
+  to FLAC (48kHz lossless)"
+  5. "Vocal quality: GREAT" — needs "Verified" wording
+  6. Missing title generation step — title gen happens silently between lyrics
+  and submit, no modal step for it
+
+  Let me fix all of these:
+
+● Read 1 file (ctrl+o to expand)
+
+● Now let me make all the fixes. First, the model detail messages:
+
+● Update(ui/main.py)
+  ⎿  Added 2 lines, removed 2 lines
+      224                  elapsed = time.time() - step_start
+      225                  if was_cold:
+      226                      logger.info(f"[GEN {track_id[:8]}] MODEL: 
+           Cold-loaded in {elapsed:.1f}s")
+      227 -                    model_detail = f"\U0001f9e0 AI model loade
+          -d in {elapsed:.1f}s"                                          
+      227 +                    model_detail = f"\U0001f9e0 Ollama gemma3:
+          +12b loaded on Optimus in {elapsed:.1f}s"                      
+      228                  else:
+      229                      logger.info(f"[GEN {track_id[:8]}] MODEL: 
+           Already warm ({elapsed:.1f}s)")
+      230 -                    model_detail = "\U0001f9e0 AI model ready 
+          -(warm)"                                                       
+      230 +                    model_detail = "\U0001f9e0 Ollama gemma3:1
+          +2b ready on Optimus"                                          
+      231              except Exception as e:
+      232                  elapsed = time.time() - step_start
+      233                  logger.warning(f"[GEN {track_id[:8]}] MODEL: P
+           re-load failed after {elapsed:.1f}s: {e}")
+
+● Now add title generation as a visible step with SSE events:
+
+● Update(ui/main.py)
+  ⎿  Added 6 lines
+      257  
+      258          # Generate title while Ollama model is still loaded (a
+           voids 22s reload later)
+      259          if needs_ai_title:
+      260 +            await emit({"event": "step", "step": "title_gen", 
+          +"state": "active"})                                           
+      261              step_start = time.time()
+      262              logger.info(f"[GEN {track_id[:8]}] TITLE: Generati
+           ng while Ollama is warm...")
+      263 +            title_detail = None                               
+      264              try:
+      265                  ai_title = await lyrics_gen.generate_title(req
+           .description)
+      266                  elapsed = time.time() - step_start
+      267                  if ai_title:
+      268                      title = ai_title
+      269                      needs_ai_title = False
+      270 +                    title_detail = f"\U0001f3b5 Title: \u201c{
+          +ai_title}\u201d in {elapsed:.1f}s"                            
+      271                      logger.info(f"[GEN {track_id[:8]}] TITLE: 
+           '{ai_title}' in {elapsed:.1f}s")
+      272                  else:
+      273                      logger.warning(f"[GEN {track_id[:8]}] TITL
+           E: Returned empty after {elapsed:.1f}s")
+      274 +                    title_detail = f"\u26a0\ufe0f No title gen
+          +erated ({elapsed:.1f}s)"                                      
+      275              except Exception as e:
+      276                  elapsed = time.time() - step_start
+      277                  logger.warning(f"[GEN {track_id[:8]}] TITLE: F
+           ailed after {elapsed:.1f}s: {e}")
+      278 +                title_detail = f"\u26a0\ufe0f Title generation
+          + failed ({elapsed:.1f}s)"                                     
+      279 +            await emit({"event": "step", "step": "title_gen", 
+          +"state": "done", "detail": title_detail})                     
+      280  
+      281          await emit({"event": "step", "step": "submit", "state"
+           : "active"})
+      282  
+
+● Now update the validate detail to say "Verified":
+
+● Update(ui/main.py)
+  ⎿  Added 1 line, removed 1 line
+      427                      "GREAT": "\U0001f31f", "GOOD": "\u2705",
+      428                      "FAIR": "\U0001f7e1", "POOR": "\U0001f534"
+           ,
+      429                  }.get(quality_rating, "\U0001f3a4")
+      430 -                validate_detail = f"{rating_emoji} Vocal quali
+          -ty: {quality_rating} ({score_pct}%) in {elapsed:.1f}s"        
+      430 +                validate_detail = f"{rating_emoji} Vocals veri
+          +fied: {quality_rating} ({score_pct}%) in {elapsed:.1f}s"      
+      431                  logger.info(f"[POST {tid}] WHISPER: {quality_r
+           ating} (score={result['quality_score']:.1f}) in {elapsed:.1f}s
+           ")
+      432              else:
+      433                  logger.warning(f"[POST {tid}] WHISPER: No resu
+           lt after {elapsed:.1f}s")
+
+● Now update the gradio_client details — GPU name and FLAC format:
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 1 line, removed 1 line
+      327              yield {"event": "error", "message": f"Submit faile
+           d: {e}"}
+      328              return
+      329  
+      330 -        yield {"event": "step", "step": "submit", "state": "do
+          -ne", "detail": "\U0001f680 Submitted to ACE-Step"}            
+      330 +        yield {"event": "step", "step": "submit", "state": "do
+          +ne", "detail": "\U0001f680 Submitted to ACE-Step on ROG-STRIX"
+          +}                                                             
+      331          yield {"event": "step", "step": "queue", "state": "act
+           ive"}
+      332  
+      333          # Step 2-5: Poll SSE stream from ACE-Step
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 2 lines, removed 2 lines
+      362                          if event_type == "generating":
+      363                              if not entered_generating:
+      364                                  entered_generating = True
+      365 -                                yield {"event": "step", "step"
+          -: "queue", "state": "done", "detail": "\u26a1 GPU initialized"
+          -}                                                             
+      365 +                                yield {"event": "step", "step"
+          +: "queue", "state": "done", "detail": "\u26a1 ACE-Step GPU rea
+          +dy (GTX 1080 Ti)"}                                            
+      366                                  yield {"event": "step", "step"
+           : "generate", "state": "active"}
+      367  
+      368                              try:
+     ...
+      405  
+      406          # Mark generation phases done
+      407          if not entered_generating:
+      408 -            yield {"event": "step", "step": "queue", "state": 
+          -"done", "detail": "\u26a1 GPU initialized"}                   
+      408 +            yield {"event": "step", "step": "queue", "state": 
+          +"done", "detail": "\u26a1 ACE-Step GPU ready (GTX 1080 Ti)"}  
+      409          yield {"event": "step", "step": "generate", "state": "
+           done"}
+      410          yield {"event": "step", "step": "decode", "state": "do
+           ne", "detail": "\U0001f4bf Encoded to lossless FLAC"}
+      411          yield {"event": "step", "step": "save", "state": "acti
+           ve"}
+
+● Update(ui/gradio_client.py)
+  ⎿  Added 1 line, removed 1 line
+      407          if not entered_generating:
+      408              yield {"event": "step", "step": "queue", "state": 
+           "done", "detail": "\u26a1 ACE-Step GPU ready (GTX 1080 Ti)"}
+      409          yield {"event": "step", "step": "generate", "state": "
+           done"}
+      410 -        yield {"event": "step", "step": "decode", "state": "do
+          -ne", "detail": "\U0001f4bf Encoded to lossless FLAC"}         
+      410 +        yield {"event": "step", "step": "decode", "state": "do
+          +ne", "detail": "\U0001f4bf Encoded to FLAC (48kHz lossless)"} 
+      411          yield {"event": "step", "step": "save", "state": "acti
+           ve"}
+      412  
+      413          # Step 6: Download FLAC
+
+● Now add the title_gen step to the frontend modal HTML, STEP_MAP, and
+  handleStepEvent:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line
+      1239      <div class="gen-steps" id="gen-steps">
+      1240        <div class="gen-step" id="gs-model-load" style="display
+            :none;"><div class="gen-step-icon">1</div><span>Loading AI mo
+            del...</span></div>
+      1241        <div class="gen-step" id="gs-lyrics" style="display:non
+            e;"><div class="gen-step-icon">1</div><span>AI writing lyrics
+            ...</span></div>
+      1242 +      <div class="gen-step" id="gs-title-gen" style="display:
+           +none;"><div class="gen-step-icon">1</div><span>AI generating 
+           +song title...</span></div>                                   
+      1243        <div class="gen-step" id="gs-submit"><div class="gen-st
+            ep-icon">1</div><span>Submitting to ACE-Step GPU...</span></d
+            iv>
+      1244        <div class="gen-step" id="gs-queue"><div class="gen-ste
+            p-icon">2</div><span>ACE-Step initializing GPU...</span></div
+            >
+      1245        <div class="gen-step" id="gs-lm"><div class="gen-step-i
+            con">3</div><span>AI composing song structure...</span></div>
+
+● Add to STEP_MAP:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line
+      939  const STEP_MAP = {
+      940    model_load: 'gs-model-load',
+      941    lyrics: 'gs-lyrics',
+      942 +  title_gen: 'gs-title-gen',                                  
+      943    submit: 'gs-submit',
+      944    queue: 'gs-queue',
+      945    generate: ['gs-lm', 'gs-diffuse'],
+
+● Add to handleStepEvent to unhide it:
+
+● Update(ui/static/index.html)
+  ⎿  Added 4 lines
+      961      const lyrEl = document.getElementById('gs-lyrics');
+      962      if (lyrEl) { lyrEl.style.display = ''; renumberSteps(); }
+      963    }
+      964 +  if (step === 'title_gen') {                                 
+      965 +    const tgEl = document.getElementById('gs-title-gen');     
+      966 +    if (tgEl) { tgEl.style.display = ''; renumberSteps(); }   
+      967 +  }                                                           
+      968    if (Array.isArray(ids)) {
+      969      if (state === 'active') {
+      970        setGenStep(ids[0], 'active');
+
+● Add to openGenModal reset:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line
+      883    // Hide optional steps
+      884    document.getElementById('gs-model-load').style.display = 'no
+           ne';
+      885    document.getElementById('gs-lyrics').style.display = 'none';
+      886 +  document.getElementById('gs-title-gen').style.display = 'non
+          +e';                                                           
+      887    ['gs-submit','gs-queue','gs-lm','gs-diffuse','gs-decode','gs
+           -save','gs-cover'].forEach((id,i) => {
+      888      document.getElementById(id).querySelector('.gen-step-icon'
+           ).textContent = (i+1);
+      889    });
+
+● Now fix the Copy Details to output clean markdown instead of URL-encoded text:
+
+● Read 1 file (ctrl+o to expand)
+
+● Update(ui/static/index.html)
+  ⎿  Added 8 lines, removed 5 lines
+      917    const elapsed = document.getElementById('gen-elapsed').textC
+           ontent;
+      918    const steps = Array.from(document.querySelectorAll('.gen-ste
+           p')).filter(s => s.style.display !== 'none');
+      919    const lines = steps.map(s => {
+      920 -    const icon = s.classList.contains('done') ? '✓' : s.classL
+          -ist.contains('error') ? '✗' : s.classList.contains('active') ?
+          - '⟳' : '·';                                                   
+      920 +    const isDone = s.classList.contains('done');              
+      921 +    const isErr = s.classList.contains('error');              
+      922 +    const icon = isDone ? '✅' : isErr ? '❌' : s.classList.co
+          +ntains('active') ? '⏳' : '⬜';                               
+      923      const text = s.querySelector('span').textContent;
+      924      return icon + ' ' + text;
+      925    });
+     ...
+      927    const timingEl = document.getElementById('gs-timing-detail')
+           ;
+      928    if (timingEl && timingEl.textContent.trim()) {
+      929      const diffuseIdx = lines.findIndex(l => l.includes('Audio 
+           generated') || l.includes('Generating audio'));
+      928 -    if (diffuseIdx >= 0) lines.splice(diffuseIdx + 1, 0, '  ' 
+          -+ timingEl.textContent.trim());                               
+      929 -    else lines.push('  ' + timingEl.textContent.trim());      
+      930 +    const timingLines = timingEl.textContent.trim().split('\n'
+          +).map(l => '   ' + l.trim());                                 
+      931 +    if (diffuseIdx >= 0) lines.splice(diffuseIdx + 1, 0, ...ti
+          +mingLines);                                                   
+      932 +    else lines.push(...timingLines);                          
+      933    }
+      931 -  const detail = title + '\n' + elapsed + '\n\n' + lines.join(
+          -'\n');                                                        
+      932 -  navigator.clipboard.writeText(detail).then(() => {          
+      934 +  const md = '## ' + title + '\n' + '**' + elapsed + '**\n\n' 
+          ++ lines.join('\n');                                           
+      935 +  navigator.clipboard.writeText(md).then(() => {              
+      936      const btn = document.getElementById('gen-copy');
+      937      btn.textContent = 'Copied!';
+      938      setTimeout(() => { btn.textContent = 'Copy Details'; }, 20
+           00);
+
+● Also update the modal step labels to be more descriptive:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line, removed 1 line
+      1246    <div class="gen-modal">
+      1247      <h3 id="gen-modal-title">Generating Your Song</h3>
+      1248      <div class="gen-steps" id="gen-steps">
+      1249 -      <div class="gen-step" id="gs-model-load" style="display
+           -:none;"><div class="gen-step-icon">1</div><span>Loading AI mo
+           -del...</span></div>                                          
+      1249 +      <div class="gen-step" id="gs-model-load" style="display
+           +:none;"><div class="gen-step-icon">1</div><span>Loading Ollam
+           +a model on Optimus...</span></div>                           
+      1250        <div class="gen-step" id="gs-lyrics" style="display:non
+            e;"><div class="gen-step-icon">1</div><span>AI writing lyrics
+            ...</span></div>
+      1251        <div class="gen-step" id="gs-title-gen" style="display:
+            none;"><div class="gen-step-icon">1</div><span>AI generating 
+            song title...</span></div>
+      1252        <div class="gen-step" id="gs-submit"><div class="gen-st
+            ep-icon">1</div><span>Submitting to ACE-Step GPU...</span></d
+            iv>
+
+● Update(ui/static/index.html)
+  ⎿  Added 6 lines, removed 6 lines
+      1249        <div class="gen-step" id="gs-model-load" style="display
+            :none;"><div class="gen-step-icon">1</div><span>Loading Ollam
+            a model on Optimus...</span></div>
+      1250        <div class="gen-step" id="gs-lyrics" style="display:non
+            e;"><div class="gen-step-icon">1</div><span>AI writing lyrics
+            ...</span></div>
+      1251        <div class="gen-step" id="gs-title-gen" style="display:
+            none;"><div class="gen-step-icon">1</div><span>AI generating 
+            song title...</span></div>
+      1252 -      <div class="gen-step" id="gs-submit"><div class="gen-st
+           -ep-icon">1</div><span>Submitting to ACE-Step GPU...</span></d
+           -iv>                                                          
+      1253 -      <div class="gen-step" id="gs-queue"><div class="gen-ste
+           -p-icon">2</div><span>ACE-Step initializing GPU...</span></div
+           ->                                                            
+      1252 +      <div class="gen-step" id="gs-submit"><div class="gen-st
+           +ep-icon">1</div><span>Submitting to ACE-Step on ROG-STRIX...<
+           +/span></div>                                                 
+      1253 +      <div class="gen-step" id="gs-queue"><div class="gen-ste
+           +p-icon">2</div><span>ACE-Step initializing GTX 1080 Ti...</sp
+           +an></div>                                                    
+      1254        <div class="gen-step" id="gs-lm"><div class="gen-step-i
+            con">3</div><span>AI composing song structure...</span></div>
+      1255 -      <div class="gen-step" id="gs-diffuse"><div class="gen-s
+           -tep-icon">4</div><span>Generating audio on GPU...</span></div
+           ->                                                            
+      1256 -      <div class="gen-step" id="gs-decode"><div class="gen-st
+           -ep-icon">5</div><span>Encoding to lossless FLAC...</span></di
+           -v>                                                           
+      1255 +      <div class="gen-step" id="gs-diffuse"><div class="gen-s
+           +tep-icon">4</div><span>Generating audio on GTX 1080 Ti...</sp
+           +an></div>                                                    
+      1256 +      <div class="gen-step" id="gs-decode"><div class="gen-st
+           +ep-icon">5</div><span>Encoding to FLAC (48kHz lossless)...</s
+           +pan></div>                                                   
+      1257        <div class="gen-step" id="gs-save"><div class="gen-step
+            -icon">6</div><span>Saving to your library...</span></div>
+      1258 -      <div class="gen-step" id="gs-validate"><div class="gen-
+           -step-icon">7</div><span>Analyzing vocal quality...</span></di
+           -v>                                                           
+      1259 -      <div class="gen-step" id="gs-cover"><div class="gen-ste
+           -p-icon">8</div><span>Generating cover art...</span></div>    
+      1258 +      <div class="gen-step" id="gs-validate"><div class="gen-
+           +step-icon">7</div><span>Verifying vocal quality via Whisper..
+           +.</span></div>                                               
+      1259 +      <div class="gen-step" id="gs-cover"><div class="gen-ste
+           +p-icon">8</div><span>Generating cover art via DreamShaper XL.
+           +..</span></div>                                              
+      1260      </div>
+      1261      <div class="gen-elapsed" id="gen-elapsed">Elapsed: 0s</di
+            v>
+      1262      <div style="display:flex;gap:8px;justify-content:center;m
+            argin-top:12px;">
+
+● Now deploy and test:
+
+● Bash(scp /home/bobray/projects/Bray_Music/ui/main.py
+      /home/bobray/projects/Bray_Music/ui/gradio_client.py
+      bobray@192.168.1.153:/home/bobray/ace-step/ui/ && scp /home…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "cd /home/bobray/ace-step && docker compose
+      build --no-cache ui && docker compose up -d ui" 2>&1 | tail -8)
+  ⎿  #12 [ui] resolving provenance for metadata file
+     #12 DONE 0.0s
+      ui  Built
+     … +8 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● Bash(ssh bobray@192.168.1.153 "docker exec bray-music-ui python -m pytest
+      tests/unit tests/api -v --tb=short" 2>&1 | tail -15)
+  ⎿  tests/api/test_endpoints.py::test_generate_acestep_error PASSED
+        [ 73%]
+     tests/api/test_endpoints.py::test_history_empty PASSED
+     … +18 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● 46/46 passed. Deployed and running. Here's what changed:
+
+  Step labels now specific:
+  - "Loading Ollama model on Optimus..." → "🧠 Ollama gemma3:12b ready on
+  Optimus"
+  - "AI writing lyrics..." → "✍️ Wrote 1339 chars of lyrics in 16.2s"
+  - NEW: "AI generating song title..." → "🎵 Title: "Peanut Panic" in 3.2s"
+  - "Submitting to ACE-Step on ROG-STRIX..." → "🚀 Submitted to ACE-Step on
+  ROG-STRIX"
+  - "ACE-Step initializing GTX 1080 Ti..." → "⚡ ACE-Step GPU ready (GTX 1080
+  Ti)"
+  - "Encoding to FLAC (48kHz lossless)..." → "💿 Encoded to FLAC (48kHz
+  lossless)"
+  - "Verifying vocal quality via Whisper..." → "🌟 Vocals verified: GREAT (100%)
+   in 59.1s"
+  - "Generating cover art via DreamShaper XL..." → "🎨 Cover art created in
+  52.2s"
+
+  Copy Details — now outputs clean markdown with ## heading, bold elapsed, and
+  ✅/❌ checkmarks
+
+  Go ahead and test on mobile.
+
+✻ Sautéed for 3m 47s
+
+❯ ok, so it's all active?  you fixed the copy button?  it's live now too?   
+  need container restart?                                                   
+
+● Already live. Container was rebuilt and restarted — 46/46 tests passed. No
+  restart needed, just hard refresh your browser on mobile.
+
+❯ just kicked off another test  
+
+● Bash(ssh bobray@192.168.1.153 "docker logs bray-music-ui --tail 25")
+  ⎿  INFO:     192.168.1.103:59862 - "GET /cover/86b888fc-3234-4b73-9748-58
+     71e05d3c4a.png HTTP/1.1" 200 OK
+     INFO:     192.168.1.103:59866 - "GET /cover/6101486b-17bb-4e86-bfe7-38
+     … +25 lines (ctrl+o to expand)
+
+● An alt rock song about bee sting allergies — keeping the allergy theme going!
+  Model warm, lyrics done (1354 chars in 16.1s), title generating now. All the
+  new steps are firing.
+
+❯ now, all the stesp on the modal - i need a table of them here of each     
+  step, where it runs (like on what server/computer), and what LLM it is    
+  running                                                                   
+
+● ┌────────────────────────┬────────────────────┬──────────────────────────┐
+  │          Step          │      Runs On       │      Model/Service       │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Loading Ollama model   │ Optimus            │ gemma3:12b via Ollama    │
+  │ on Optimus             │ (192.168.1.145)    │                          │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ AI writing lyrics      │ Optimus            │ gemma3:12b via Ollama    │
+  │                        │ (192.168.1.145)    │                          │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ AI generating song     │ Optimus            │ gemma3:12b via Ollama    │
+  │ title                  │ (192.168.1.145)    │                          │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Submitting to ACE-Step │ ROG-STRIX          │ —                        │
+  │                        │ (192.168.1.153)    │                          │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ ACE-Step initializing  │ ROG-STRIX          │ ACE-Step 1.5 (0.6B LM)   │
+  │ GTX 1080 Ti            │ (192.168.1.153)    │                          │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ AI composing song      │ ROG-STRIX          │ ACE-Step 1.5 LM (0.6B)   │
+  │ structure              │ (192.168.1.153)    │ on GTX 1080 Ti           │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Generating audio on    │ ROG-STRIX          │ ACE-Step 1.5 DiT         │
+  │ GTX 1080 Ti            │ (192.168.1.153)    │ (diffusion) on GTX 1080  │
+  │                        │                    │ Ti                       │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Encoding to FLAC       │ ROG-STRIX          │ No LLM — FFmpeg/numpy    │
+  │ (48kHz lossless)       │ (192.168.1.153)    │ audio encoding           │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Saving to your library │ ROG-STRIX          │ No LLM — FastAPI writes  │
+  │                        │ (192.168.1.153)    │ history.json             │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Verifying vocal        │ ROG-STRIX          │ faster-whisper           │
+  │ quality via Whisper    │ (192.168.1.153)    │ medium/int8 on CPU       │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ Generating cover art   │ ROG-STRIX          │ DreamShaper XL v1.0      │
+  │ via DreamShaper XL     │ (192.168.1.153)    │ (SDXL) on GTX 1080 Ti    │
+  └────────────────────────┴────────────────────┴──────────────────────────┘
+
+  Three machines involved:
+  - FIREFALL (your WSL2 laptop) — runs the browser
+  - Optimus (192.168.1.145) — runs Ollama for lyrics + title generation
+  - ROG-STRIX (192.168.1.153) — runs everything else (ACE-Step, Whisper,
+  DreamShaper XL, the UI container)
+
+❯ VERY COOl!  add to our documentation...                                   
+                                                                            
+  also, here is the paste from teh copy results button:                     
+  Generating: Write an alt rock song about being allergic to bee stings     
+  Elapsed: 9m 23s                                                           
+                                                                            
+  ✅ 🧠 Ollama gemma3:12b ready on Optimus                                  
+  ✅ ✍️ Wrote 1354 chars of lyrics in 16.1s                                 
+  ✅ 🎵 Title: “Stung Silence” in 19.4s                                     
+  ✅ 🚀 Submitted to ACE-Step on ROG-STRIX                                  
+  ✅ ⚡ ACE-Step GPU ready (GTX 1080 Ti)                                    
+  ✅ AI composing song structure...                                         
+  ✅ 🎵 Audio generated in 92.92s                                           
+  🎵 Total: 92.92s · LM: 61.59s · DiT: 31.33s                               
+  🔧 Processing: 0.62s · FLAC encode: 0.62s                                 
+  ✅ 💿 Encoded to FLAC (48kHz lossless)                                    
+  ✅ 💾 Saved — 2:46 · FLAC · seed 1030014648                               
+  ✅ 🌟 Vocals verified: GREAT (100%) in 53.7s                              
+  ✅ 🎨 Cover art created in 49.8s                                          
+                                                                            
+  ----                                                                      
+  another tweak on the modal...after the steps are done and the copy        
+  details button appears, that's when the elapsed timer shoudl stop         
+  counting and show the final time it took.  right now, after the copy      
+  details button appears the elapsed timer just keeps going...i don't knwo  
+  what actually stops it....                                                
+                                                                            
+                                                                            
+  let me know on all that as I have another question about the 3 steps in   
+  teh table you jsut gave me that are the ace-step models....               
+
+● That paste looks great — the markdown format is clean now. Let me add the
+  table to docs and fix the timer.
+
+● First, fix the elapsed timer. Let me find where done events are handled:
+
+● Searched for 1 pattern (ctrl+o to expand)
+
+● There it is — line 546 handles the done event but does nothing. The timer only
+   stops in closeGenModal(). I need to stop the timer when done arrives:
+
+● Update(ui/static/index.html)
+  ⎿  Added 1 line, removed 1 line
+      543              const mc = document.getElementById('m-cover'); if 
+           (mc) { mc.innerHTML = imgHtml; mc.style.background = 'none'; }
+      544            }
+      545            else if (evt.event === 'error') { gotError = evt.mes
+           sage; }
+      546 -          else if (evt.event === 'done') { /* stream complete 
+          -*/ }                                                          
+      546 +          else if (evt.event === 'done') { if (genTimer) { cle
+          +arInterval(genTimer); genTimer = null; } }                    
+      547            if (extraHandler) extraHandler(evt);
+      548          } catch (parseErr) {
+      549            if (!(parseErr instanceof SyntaxError)) console.warn
+           ('SSE parse error:', parseErr);
+
+● Now add the documentation. Let me update AS-BUILT.md with the generation
+  pipeline table:
+
+● Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● I'll add the generation pipeline table as a new section. Let me find a good
+  insertion point — after the system overview:
+
+● Read 1 file (ctrl+o to expand)
+
+● I see the architecture diagram is outdated (still references
+  Nextcloud/Visionatrix). I'll add the generation pipeline table after the Data
+  Flow section and update the diagram. Let me insert it cleanly:
+
+● Update(AS-BUILT.md)
+  ⎿  Added 33 lines, removed 6 lines
+      58  ### Data Flow
+      59  
+      60  1. User describes a song in the web UI (Simple or Custom mode)
+      61 -2. UI container sends parameters to ACE-Step's Gradio API via `
+         -host.docker.internal:7860`                                     
+      62 -3. ACE-Step generates audio on the GTX 1080 Ti GPU (60-120 seco
+         -nds)                                                           
+      63 -4. UI container downloads the FLAC file from Gradio's file serv
+         -er to the shared volume                                        
+      64 -5. Track metadata is saved to `history.json`                   
+      65 -6. In the background, cover art is requested from Nextcloud's T
+         -ask Processing API (Visionatrix SDXL on BrayNextcloudServer)   
+      66 -7. If Nextcloud/Visionatrix fails, a Pillow gradient+text fallb
+         -ack cover is generated                                         
+      61 +2. Ollama on Optimus generates lyrics and a song title (gemma3:
+         +12b)                                                           
+      62 +3. UI container sends parameters to ACE-Step's Gradio API via `
+         +host.docker.internal:7860`                                     
+      63 +4. ACE-Step generates audio on the GTX 1080 Ti GPU (60-120 seco
+         +nds)                                                           
+      64 +5. UI container downloads the FLAC file from Gradio's file serv
+         +er to the shared volume                                        
+      65 +6. Track metadata is saved to `history.json`                   
+      66 +7. Whisper validates vocal quality (faster-whisper medium on CP
+         +U)                                                             
+      67 +8. Cover art is generated locally via DreamShaper XL on GTX 108
+         +0 Ti                                                           
+      68 +9. If DreamShaper XL is unavailable, a Pillow gradient fallback
+         + cover is generated                                            
+      69  
+      70 +### Generation Pipeline Steps                                  
+      71 +                                                               
+      72 +Each generation produces a real-time status modal showing every
+         + step. Three machines are involved:                            
+      73 +                                                               
+      74 +| # | Step | Runs On | Model / Service |                       
+      75 +|---|------|---------|-----------------|                       
+      76 +| 1 | Load AI model | Optimus (192.168.1.145) | gemma3:12b via 
+         +Ollama |                                                       
+      77 +| 2 | Write lyrics | Optimus (192.168.1.145) | gemma3:12b via O
+         +llama |                                                        
+      78 +| 3 | Generate title | Optimus (192.168.1.145) | gemma3:12b via
+         + Ollama |                                                      
+      79 +| 4 | Submit to ACE-Step | ROG-STRIX (192.168.1.153) | — |     
+      80 +| 5 | Initialize GPU | ROG-STRIX (192.168.1.153) | ACE-Step 1.5
+         + (0.6B LM) |                                                   
+      81 +| 6 | Compose song structure | ROG-STRIX (192.168.1.153) | ACE-
+         +Step 1.5 LM (0.6B) on GTX 1080 Ti |                            
+      82 +| 7 | Generate audio | ROG-STRIX (192.168.1.153) | ACE-Step 1.5
+         + DiT (diffusion) on GTX 1080 Ti |                              
+      83 +| 8 | Encode to FLAC | ROG-STRIX (192.168.1.153) | FFmpeg/numpy
+         + — 48kHz lossless |                                            
+      84 +| 9 | Save to library | ROG-STRIX (192.168.1.153) | FastAPI wri
+         +tes history.json |                                             
+      85 +| 10 | Verify vocal quality | ROG-STRIX (192.168.1.153) | faste
+         +r-whisper medium/int8 on CPU |                                 
+      86 +| 11 | Generate cover art | ROG-STRIX (192.168.1.153) | DreamSh
+         +aper XL v1.0 (SDXL) on GTX 1080 Ti |                           
+      87 +                                                               
+      88 +**Notes:**                                                     
+      89 +- Steps 1-3 only appear for vocal tracks without user-provided 
+         +lyrics/title                                                   
+      90 +- Steps 6-7 are the ACE-Step LM and DiT phases (shown as separa
+         +te progress in the modal)                                      
+      91 +- Step 10 is skipped for instrumental tracks                   
+      92 +- Step 11 uses a Pillow gradient fallback if DreamShaper XL is 
+         +unavailable or vocals rated FAIR/POOR                          
+      93 +- The browser (on user's device, e.g. FIREFALL) connects via NP
+         +M proxy on BrayNextcloudServer (192.168.1.103)                 
+      94 +                                                               
+      95  ---
+      96  
+      97  ## 2. Infrastructure
+
+● Also update the architecture diagram to reflect current state:
+
+● Update(AS-BUILT.md)
+  ⎿  Added 22 lines, removed 15 lines
+      36                         |
+      37                         v
+      38                *.apps.bray.house
+      39 -            (SSL via NPM, host 37)                             
+      39 +            (SSL via NPM on BrayNextcloudServer 192.168.1.103) 
+      40                         |
+      41                         v
+      42 -        +----------------------------+                         
+      43 -        |    bray-music-ui (Docker)  |                         
+      44 -        |    FastAPI :7861           |                         
+      45 -        |    UI, API, history,       |                         
+      46 -        |    cover art orchestration |                         
+      47 -        +----------------------------+                         
+      48 -           |                    |                              
+      49 -           v                    v                              
+      50 -  +------------------+   +-----------------------------+       
+      51 -  | ACE-Step 1.5     |   | Nextcloud Task Processing   |       
+      52 -  | (native, systemd)|   | (BrayNextcloudServer)       |       
+      53 -  | Gradio :7860     |   | core:text2image             |       
+      54 -  | GTX 1080 Ti GPU  |   | Visionatrix SDXL            |       
+      55 -  +------------------+   +-----------------------------+       
+      42 +        +-------------------------------+                      
+      43 +        |    bray-music-ui (Docker)     |    ROG-STRIX (192.168
+         +.1.153)                                                        
+      44 +        |    FastAPI :7861              |                      
+      45 +        |    UI, API, history,          |                      
+      46 +        |    orchestrates all services  |                      
+      47 +        +-------------------------------+                      
+      48 +           |            |            |                         
+      49 +           v            v            v                         
+      50 +  +----------------+ +----------+ +-------------------+        
+      51 +  | ACE-Step 1.5   | | Whisper  | | DreamShaper XL    |        
+      52 +  | native systemd | | :7862    | | cover-art-service |        
+      53 +  | Gradio :7860   | | CPU      | | :7863, GTX 1080Ti |        
+      54 +  | GTX 1080 Ti    | +----------+ +-------------------+        
+      55 +  +----------------+                                           
+      56 +           |                                                   
+      57 +           v (lyrics + title)                                  
+      58 +  +-------------------+                                        
+      59 +  | Ollama            |    Optimus (192.168.1.145)             
+      60 +  | gemma3:12b        |                                        
+      61 +  | :11434            |                                        
+      62 +  +-------------------+                                        
+      63  ```
+      64  
+      65  ### Data Flow
+
+● Now deploy the timer fix:
+
+● Bash(scp /home/bobray/projects/Bray_Music/ui/static/index.html
+      bobray@192.168.1.153:/home/bobray/ace-step/ui/static/ && ssh
+      bobray@192.168.1.153 "cd /home/bobray/ace…)
+  ⎿  time="2026-03-06T10:56:46-05:00" level=warning msg="Found orphan conta
+     iners ([ace-step]) for this project. If you removed or renamed this se
+     rvice in your compose file, you can run this command with the --remove
+     … +5 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+● All done and live:
+
+  1. Documentation — Added the full generation pipeline table to AS-BUILT.md
+  with all 11 steps, which machine runs each, and which model/service. Also
+  updated the architecture diagram (removed old Nextcloud/Visionatrix, added
+  Ollama on Optimus, Whisper, DreamShaper XL).
+  2. Elapsed timer — Now freezes when the done event arrives (all steps
+  complete). Previously it only stopped when you closed the modal.
+
+  Go ahead with your question about the ACE-Step model steps.
+
+✻ Baked for 1m 31s

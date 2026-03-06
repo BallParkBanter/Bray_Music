@@ -10,6 +10,11 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./outputs:/app/outputs
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       - ACESTEP_URL=http://host.docker.internal:7860
       - WHISPER_URL=http://host.docker.internal:7862

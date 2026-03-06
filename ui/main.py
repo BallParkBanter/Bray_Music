@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,14 +80,24 @@ def _get_audio_duration(file_path: str) -> float:
     return 0.0
 
 
+def _initial_title(req: GenerateRequest) -> tuple[str, bool]:
+    """Return (title, needs_ai_title). Uses description excerpt if title is empty."""
+    if req.title and req.title.strip():
+        return req.title.strip(), False
+    desc = req.description.strip()
+    truncated = desc[:60] + ("…" if len(desc) > 60 else "")
+    return truncated, True
+
+
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     track_id = str(uuid.uuid4())
     genre_hint = _extract_genre(req.description)
+    title, needs_ai_title = _initial_title(req)
 
     if req.include_vocals and not (req.lyrics and req.lyrics.strip()):
         try:
-            generated_lyrics = await lyrics_gen.generate_lyrics(req.description)
+            generated_lyrics = await lyrics_gen.generate_lyrics(req.description, genre=genre_hint)
             if generated_lyrics:
                 req.lyrics = generated_lyrics
                 logger.info(f"Generated lyrics ({len(generated_lyrics)} chars) for Simple mode")
@@ -94,7 +105,7 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
             logger.warning(f"Lyrics generation failed, proceeding without: {e}")
 
     try:
-        result = await gradio_client.generate(req)
+        result = await gradio_client.generate(req, genre_hint=genre_hint)
     except Exception as e:
         logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"ACE-Step error: {e}")
@@ -104,7 +115,7 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
 
     track = TrackMeta(
         id=track_id,
-        title=req.title,
+        title=title,
         description=req.description,
         genre_hint=genre_hint,
         duration_sec=_get_audio_duration(file_path) or (req.duration * 60),
@@ -123,7 +134,7 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     )
 
     await history_mod.append(track)
-    background_tasks.add_task(_bg_validate_and_cover, track)
+    background_tasks.add_task(_bg_validate_and_cover, track, None, needs_ai_title)
 
     return GenerateResponse(track=track)
 
@@ -140,26 +151,30 @@ async def generate_stream(req: GenerateRequest):
     job_id = str(uuid.uuid4())
     track_id = str(uuid.uuid4())
     genre_hint = _extract_genre(req.description)
+    title, needs_ai_title = _initial_title(req)
     queue: asyncio.Queue = asyncio.Queue()
     _jobs[job_id] = queue
 
     # Launch the generation as an independent task
     asyncio.create_task(
-        _run_generation(job_id, track_id, genre_hint, req, queue)
+        _run_generation(job_id, track_id, genre_hint, req, queue, title, needs_ai_title)
     )
 
     async def event_stream():
         try:
             while True:
-                evt = await queue.get()
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep SSE connection alive through proxies
+                    yield ": heartbeat\n\n"
+                    continue
                 if evt is None:
-                    # Sentinel: generation task is done
                     break
                 yield "data: " + json.dumps(evt) + "\n\n"
                 if evt.get("event") in ("done", "error"):
                     break
         finally:
-            # Clean up job reference (generation task handles its own completion)
             _jobs.pop(job_id, None)
 
     return StreamingResponse(
@@ -175,6 +190,8 @@ async def _run_generation(
     genre_hint: str,
     req: GenerateRequest,
     queue: asyncio.Queue,
+    title: str = "",
+    needs_ai_title: bool = False,
 ):
     """Independent generation task. Puts events on the queue for the SSE stream.
 
@@ -187,42 +204,111 @@ async def _run_generation(
         except Exception:
             pass  # Queue might be gone if client disconnected; that is fine
 
+    job_start = time.time()
+    logger.info("=" * 60)
+    logger.info(f"[GEN {track_id[:8]}] NEW GENERATION STARTED")
+    logger.info(f"[GEN {track_id[:8]}] Description: {req.description}")
+    logger.info(f"[GEN {track_id[:8]}] Title: '{title}' (needs_ai_title={needs_ai_title})")
+    logger.info(f"[GEN {track_id[:8]}] Genre: {genre_hint} | Vocals: {req.include_vocals} | BPM: {req.bpm or 'auto'} | Key: {req.key or 'auto'} | Creativity: {req.creativity}")
+    logger.info(f"[GEN {track_id[:8]}] Duration: {req.duration or 'auto (LM determines from lyrics)'} | Enhance: {req.enhance_lyrics} | Seed: {req.seed or 'random'}")
+    logger.info(f"[GEN {track_id[:8]}] Lyrics provided: {bool(req.lyrics and req.lyrics.strip())} ({len(req.lyrics)} chars)")
+
     try:
-        # Step: lyrics generation
+        # Step: ensure Ollama model is loaded (may take 20-25s on cold start)
         if req.include_vocals and not (req.lyrics and req.lyrics.strip()):
-            await emit({"event": "step", "step": "lyrics", "state": "active"})
+            await emit({"event": "step", "step": "model_load", "state": "active"})
+            step_start = time.time()
+            logger.info(f"[GEN {track_id[:8]}] MODEL: Checking if Ollama model is loaded...")
             try:
-                generated_lyrics = await lyrics_gen.generate_lyrics(req.description)
+                was_cold = await lyrics_gen.ensure_model_loaded()
+                elapsed = time.time() - step_start
+                if was_cold:
+                    logger.info(f"[GEN {track_id[:8]}] MODEL: Cold-loaded in {elapsed:.1f}s")
+                    model_detail = f"\U0001f9e0 Ollama gemma3:12b loaded on Optimus in {elapsed:.1f}s"
+                else:
+                    logger.info(f"[GEN {track_id[:8]}] MODEL: Already warm ({elapsed:.1f}s)")
+                    model_detail = "\U0001f9e0 Ollama gemma3:12b ready on Optimus"
+            except Exception as e:
+                elapsed = time.time() - step_start
+                logger.warning(f"[GEN {track_id[:8]}] MODEL: Pre-load failed after {elapsed:.1f}s: {e}")
+                model_detail = f"\u26a0\ufe0f Model pre-load failed ({elapsed:.1f}s)"
+            await emit({"event": "step", "step": "model_load", "state": "done", "detail": model_detail})
+
+            await emit({"event": "step", "step": "lyrics", "state": "active"})
+            step_start = time.time()
+            logger.info(f"[GEN {track_id[:8]}] LYRICS: Starting generation via Ollama...")
+            lyrics_detail = None
+            try:
+                generated_lyrics = await lyrics_gen.generate_lyrics(req.description, genre=genre_hint)
+                elapsed = time.time() - step_start
                 if generated_lyrics:
                     req.lyrics = generated_lyrics
-                    logger.info(f"Generated lyrics ({len(generated_lyrics)} chars) for Simple mode")
+                    logger.info(f"[GEN {track_id[:8]}] LYRICS: Generated {len(generated_lyrics)} chars in {elapsed:.1f}s")
                     await emit({"event": "lyrics", "text": generated_lyrics})
+                    lyrics_detail = f"\u270d\ufe0f Wrote {len(generated_lyrics)} chars of lyrics in {elapsed:.1f}s"
                 else:
-                    logger.warning("Lyrics generation returned empty, proceeding without")
+                    logger.warning(f"[GEN {track_id[:8]}] LYRICS: Returned empty after {elapsed:.1f}s, proceeding without")
+                    lyrics_detail = f"\u26a0\ufe0f No lyrics generated ({elapsed:.1f}s)"
             except Exception as e:
-                logger.warning(f"Lyrics generation failed: {e}")
-            await emit({"event": "step", "step": "lyrics", "state": "done"})
+                elapsed = time.time() - step_start
+                logger.warning(f"[GEN {track_id[:8]}] LYRICS: Failed after {elapsed:.1f}s: {e}")
+                lyrics_detail = f"\u26a0\ufe0f Lyrics failed ({elapsed:.1f}s)"
+            await emit({"event": "step", "step": "lyrics", "state": "done", "detail": lyrics_detail})
+
+        # Generate title while Ollama model is still loaded (avoids 22s reload later)
+        if needs_ai_title:
+            await emit({"event": "step", "step": "title_gen", "state": "active"})
+            step_start = time.time()
+            logger.info(f"[GEN {track_id[:8]}] TITLE: Generating while Ollama is warm...")
+            title_detail = None
+            try:
+                ai_title = await lyrics_gen.generate_title(req.description)
+                elapsed = time.time() - step_start
+                if ai_title:
+                    title = ai_title
+                    needs_ai_title = False
+                    title_detail = f"\U0001f3b5 Title: \u201c{ai_title}\u201d in {elapsed:.1f}s"
+                    logger.info(f"[GEN {track_id[:8]}] TITLE: '{ai_title}' in {elapsed:.1f}s")
+                else:
+                    logger.warning(f"[GEN {track_id[:8]}] TITLE: Returned empty after {elapsed:.1f}s")
+                    title_detail = f"\u26a0\ufe0f No title generated ({elapsed:.1f}s)"
+            except Exception as e:
+                elapsed = time.time() - step_start
+                logger.warning(f"[GEN {track_id[:8]}] TITLE: Failed after {elapsed:.1f}s: {e}")
+                title_detail = f"\u26a0\ufe0f Title generation failed ({elapsed:.1f}s)"
+            await emit({"event": "step", "step": "title_gen", "state": "done", "detail": title_detail})
 
         await emit({"event": "step", "step": "submit", "state": "active"})
 
         # Step: ACE-Step generation (streaming)
+        step_start = time.time()
+        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Submitting to ACE-Step...")
         result_data = None
         try:
-            async for evt in gradio_client.generate_streaming(req):
+            async for evt in gradio_client.generate_streaming(req, genre_hint=genre_hint):
                 await emit(evt)
 
                 if evt.get("event") == "complete":
                     result_data = evt["result"]
+                    elapsed = time.time() - step_start
+                    logger.info(f"[GEN {track_id[:8]}] ACESTEP: Complete in {elapsed:.1f}s — file: {result_data.get('filename', '?')}, seed: {result_data.get('seed', '?')}")
                 elif evt.get("event") == "error":
+                    elapsed = time.time() - step_start
+                    logger.error(f"[GEN {track_id[:8]}] ACESTEP: Error after {elapsed:.1f}s: {evt.get('message', '?')}")
                     await emit(None)  # sentinel
                     return
+                elif evt.get("event") == "progress":
+                    logger.info(f"[GEN {track_id[:8]}] ACESTEP: Progress {evt.get('progress', '?')}%")
         except Exception as e:
-            logger.error("Stream generation error: %s", e)
+            elapsed = time.time() - step_start
+            logger.error(f"[GEN {track_id[:8]}] ACESTEP: Stream error after {elapsed:.1f}s: {e}")
             await emit({"event": "error", "message": str(e)})
             await emit(None)
             return
 
         if not result_data:
+            elapsed = time.time() - step_start
+            logger.error(f"[GEN {track_id[:8]}] ACESTEP: No result after {elapsed:.1f}s")
             await emit({"event": "error", "message": "No result from generator"})
             await emit(None)
             return
@@ -230,13 +316,14 @@ async def _run_generation(
         # Step: save track to history (this ALWAYS runs, even if client disconnected)
         file_path = result_data["file_path"]
         filename = result_data["filename"]
+        duration = _get_audio_duration(file_path) or (req.duration * 60)
 
         track = TrackMeta(
             id=track_id,
-            title=req.title,
+            title=title,
             description=req.description,
             genre_hint=genre_hint,
-            duration_sec=_get_audio_duration(file_path) or (req.duration * 60),
+            duration_sec=duration,
             filename=filename,
             cover_art=None,
             cover_gradient=_gradient_for(track_id),
@@ -252,22 +339,34 @@ async def _run_generation(
         )
 
         await history_mod.append(track)
-        logger.info(f"Track saved: {track.title} ({filename})")
+        logger.info(f"[GEN {track_id[:8]}] SAVED: '{track.title}' | {filename} | {duration:.1f}s | seed={result_data['seed']}")
 
+        dur_m = int(duration // 60)
+        dur_s = int(duration % 60)
+        save_detail = f"\U0001f4be Saved \u2014 {dur_m}:{dur_s:02d} \u00b7 FLAC \u00b7 seed {result_data['seed']}"
+        await emit({"event": "step", "step": "save", "state": "done", "detail": save_detail})
         await emit({"event": "track", "track": track.model_dump()})
 
         # Validate + cover art (runs inline so SSE stream stays open)
-        await _bg_validate_and_cover(track, queue=queue)
+        await _bg_validate_and_cover(track, queue=queue, needs_ai_title=needs_ai_title)
 
     except Exception as e:
-        logger.error("Generation task fatal error: %s", e)
+        elapsed = time.time() - job_start
+        logger.error(f"[GEN {track_id[:8]}] FATAL ERROR after {elapsed:.1f}s: {e}")
         await emit({"event": "error", "message": str(e)})
         await emit(None)
     finally:
+        total = time.time() - job_start
+        logger.info(f"[GEN {track_id[:8]}] TOTAL TIME: {total:.1f}s")
+        logger.info("=" * 60)
         _jobs.pop(job_id, None)
 
 
-async def _bg_validate_and_cover(track: TrackMeta, queue: asyncio.Queue | None = None) -> None:
+async def _bg_validate_and_cover(
+    track: TrackMeta,
+    queue: asyncio.Queue | None = None,
+    needs_ai_title: bool = False,
+) -> None:
     """Validate vocal quality (if applicable), then generate cover art conditionally."""
     async def emit(evt: dict):
         if queue:
@@ -276,20 +375,46 @@ async def _bg_validate_and_cover(track: TrackMeta, queue: asyncio.Queue | None =
             except Exception:
                 pass
 
+    tid = track.id[:8]
+
+    # AI title generation (if no user-provided title)
+    if needs_ai_title:
+        step_start = time.time()
+        logger.info(f"[POST {tid}] TITLE: Generating AI title via Ollama...")
+        try:
+            ai_title = await lyrics_gen.generate_title(track.description)
+            elapsed = time.time() - step_start
+            if ai_title:
+                await history_mod.update_title(track.id, ai_title)
+                track.title = ai_title
+                await emit({"event": "title", "title": ai_title})
+                logger.info(f"[POST {tid}] TITLE: '{ai_title}' in {elapsed:.1f}s")
+            else:
+                logger.warning(f"[POST {tid}] TITLE: Returned empty after {elapsed:.1f}s")
+        except Exception as e:
+            elapsed = time.time() - step_start
+            logger.warning(f"[POST {tid}] TITLE: Failed after {elapsed:.1f}s: {e}")
+
     is_instrumental = (
         not track.lyrics
         or not track.lyrics.strip()
         or track.lyrics.strip() == "[Instrumental]"
     )
+    logger.info(f"[POST {tid}] Type: {'instrumental' if is_instrumental else 'vocal'}")
 
     # Step 1: Whisper validation (vocal tracks only)
     quality_rating = None
     if not is_instrumental:
         await emit({"event": "step", "step": "validate", "state": "active"})
+        step_start = time.time()
+        logger.info(f"[POST {tid}] WHISPER: Starting validation for {track.filename}...")
+        validate_detail = None
         try:
             result = await validation_mod.validate_track(track.filename)
+            elapsed = time.time() - step_start
             if result:
                 quality_rating = result["quality_rating"]
+                score_pct = round((result["quality_score"] or 0) * 100)
                 await history_mod.update_quality(
                     track.id, result["quality_score"], quality_rating,
                 )
@@ -298,32 +423,52 @@ async def _bg_validate_and_cover(track: TrackMeta, queue: asyncio.Queue | None =
                     "rating": quality_rating,
                     "score": result["quality_score"],
                 })
-                logger.info(f"Quality validated: {track.title} → {quality_rating}")
+                rating_emoji = {
+                    "GREAT": "\U0001f31f", "GOOD": "\u2705",
+                    "FAIR": "\U0001f7e1", "POOR": "\U0001f534",
+                }.get(quality_rating, "\U0001f3a4")
+                validate_detail = f"{rating_emoji} Vocals verified: {quality_rating} ({score_pct}%) in {elapsed:.1f}s"
+                logger.info(f"[POST {tid}] WHISPER: {quality_rating} (score={result['quality_score']:.1f}) in {elapsed:.1f}s")
+            else:
+                logger.warning(f"[POST {tid}] WHISPER: No result after {elapsed:.1f}s")
+                validate_detail = f"\u26a0\ufe0f Validation unavailable ({elapsed:.1f}s)"
         except Exception as e:
-            logger.warning(f"Validation failed for {track.id}: {e}")
-        await emit({"event": "step", "step": "validate", "state": "done"})
+            elapsed = time.time() - step_start
+            logger.warning(f"[POST {tid}] WHISPER: Failed after {elapsed:.1f}s: {e}")
+            validate_detail = f"\u26a0\ufe0f Validation failed ({elapsed:.1f}s)"
+        await emit({"event": "step", "step": "validate", "state": "done", "detail": validate_detail})
 
     # Step 2: Conditional cover art
-    # Instrumental → always AI cover
-    # Vocal GOOD/GREAT → AI cover
-    # Vocal FAIR/POOR/NONE/unavailable → gradient fallback only
-    should_generate_cover = is_instrumental or quality_rating in ("GOOD", "GREAT")
+    # Generate cover art unless whisper explicitly rated it FAIR or POOR
+    should_generate_cover = is_instrumental or quality_rating in ("GOOD", "GREAT") or quality_rating is None
+    logger.info(f"[POST {tid}] COVER: should_generate={should_generate_cover} (instrumental={is_instrumental}, quality={quality_rating})")
 
     await emit({"event": "step", "step": "cover", "state": "active"})
+    cover_detail = None
     if should_generate_cover:
+        step_start = time.time()
+        logger.info(f"[POST {tid}] COVER: Generating AI cover art...")
         try:
             cover_file = await cover_art_mod.generate_cover(track)
+            elapsed = time.time() - step_start
             if cover_file:
                 await history_mod.update_cover(track.id, cover_file)
-                logger.info(f"Cover art saved: {cover_file}")
+                await emit({"event": "cover_art", "cover_art": cover_file})
+                cover_detail = f"\U0001f3a8 Cover art created in {elapsed:.1f}s"
+                logger.info(f"[POST {tid}] COVER: Saved {cover_file} in {elapsed:.1f}s")
+            else:
+                logger.warning(f"[POST {tid}] COVER: Returned empty after {elapsed:.1f}s")
+                cover_detail = f"\u26a0\ufe0f Cover art empty ({elapsed:.1f}s)"
         except Exception as e:
-            logger.error(f"Cover art failed for {track.id}: {e}")
+            elapsed = time.time() - step_start
+            logger.error(f"[POST {tid}] COVER: Failed after {elapsed:.1f}s: {e}")
+            cover_detail = f"\u26a0\ufe0f Cover art failed ({elapsed:.1f}s)"
     else:
-        logger.info(
-            f"Skipping AI cover for {track.title} (quality: {quality_rating}) — using gradient"
-        )
-    await emit({"event": "step", "step": "cover", "state": "done"})
+        logger.info(f"[POST {tid}] COVER: Skipped — using gradient fallback")
+        cover_detail = "\U0001f3a8 Using gradient cover (quality too low for AI art)"
+    await emit({"event": "step", "step": "cover", "state": "done", "detail": cover_detail})
 
+    logger.info(f"[POST {tid}] Post-processing complete")
     await emit({"event": "done"})
     await emit(None)  # sentinel
 
@@ -529,15 +674,37 @@ async def health():
 
 
 def _extract_genre(description: str) -> str:
-    genres = [
-        "rock", "pop", "jazz", "classical", "hip hop", "electronic", "folk",
-        "country", "r&b", "metal", "indie", "ambient", "blues", "reggae",
-        "soul", "punk", "latin", "dance", "orchestral",
-    ]
     desc_lower = description.lower()
-    for g in genres:
-        if g in desc_lower:
-            return g
+    # Order matters — check specific terms before generic ones
+    genre_map = [
+        (["rap battle", "rap song", "rapper", "rapping", "hip hop", "hip-hop", "hiphop", "trap"], "hip hop"),
+        (["r&b", "r and b", "rnb", "rhythm and blues"], "r&b"),
+        (["edm", "techno", "house music", "trance", "dubstep", "electronic"], "electronic"),
+        (["heavy metal", "death metal", "thrash", "metalcore"], "metal"),
+        (["punk rock", "punk"], "punk"),
+        (["indie rock", "indie pop", "indie"], "indie"),
+        (["classic rock", "rock anthem", "rock song", "rock"], "rock"),
+        (["pop song", "pop music", "pop anthem", "pop"], "pop"),
+        (["jazz"], "jazz"),
+        (["classical", "orchestra", "symphon", "orchestral"], "classical"),
+        (["folk", "acoustic folk"], "folk"),
+        (["country", "honky tonk", "bluegrass"], "country"),
+        (["metal"], "metal"),
+        (["ambient", "chill", "lo-fi", "lofi"], "ambient"),
+        (["blues"], "blues"),
+        (["reggae", "reggaeton"], "reggae"),
+        (["soul", "motown"], "soul"),
+        (["latin", "salsa", "bossa nova", "latin pop"], "latin"),
+        (["dance", "disco", "club"], "dance"),
+        (["gospel", "worship", "hymn", "praise"], "gospel"),
+        (["ballad", "love song", "slow song"], "ballad"),
+        (["anime", "j-pop", "jpop"], "j-pop"),
+        (["k-pop", "kpop"], "k-pop"),
+    ]
+    for keywords, genre in genre_map:
+        for kw in keywords:
+            if kw in desc_lower:
+                return genre
     return "music"
 
 
@@ -566,6 +733,8 @@ def _emoji_for(genre: str) -> str:
         "ambient": "\U0001f30a", "blues": "\U0001f3b5",
         "reggae": "\U0001f334", "soul": "\u2764\ufe0f",
         "punk": "\u26a1", "latin": "\U0001f483", "dance": "\U0001f57a",
-        "orchestral": "\U0001f3bc",
+        "orchestral": "\U0001f3bc", "gospel": "\U0001f64f",
+        "ballad": "\U0001f49c", "j-pop": "\U0001f338",
+        "k-pop": "\u2b50",
     }
     return mapping.get(genre, "\U0001f3b5")

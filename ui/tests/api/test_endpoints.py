@@ -202,7 +202,7 @@ async def test_generate_stream_success(test_client, patch_outputs):
     fake_flac = config.AUDIO_DIR / "stream-output.flac"
     fake_flac.write_bytes(b"FLAC")
 
-    async def fake_streaming(req):
+    async def fake_streaming(req, **kwargs):
         yield {"event": "step", "step": "submit", "state": "done"}
         yield {"event": "step", "step": "queue", "state": "active"}
         yield {"event": "step", "step": "queue", "state": "done"}
@@ -260,7 +260,7 @@ async def test_generate_stream_success(test_client, patch_outputs):
 @pytest.mark.asyncio
 async def test_generate_stream_error(test_client, patch_outputs):
     """Test /generate-stream handles errors from ACE-Step."""
-    async def fake_streaming_error(req):
+    async def fake_streaming_error(req, **kwargs):
         yield {"event": "step", "step": "submit", "state": "done"}
         yield {"event": "step", "step": "queue", "state": "active"}
         yield {"event": "error", "message": "GPU out of memory"}

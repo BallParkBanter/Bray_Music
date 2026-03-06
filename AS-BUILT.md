@@ -1,6 +1,6 @@
 # Bray Music Studio — As-Built System Documentation
 
-**Document version:** 2026-03-04
+**Document version:** 2026-03-06
 **System deployed:** 2026-03-04
 **Host:** bobray-ROG-STRIX (192.168.1.153)
 **Public URL:** https://music.apps.bray.house
@@ -36,34 +36,68 @@ Bray Music Studio is a self-hosted, AI-powered music generation web application.
                        |
                        v
               *.apps.bray.house
-            (SSL via NPM, host 37)
+            (SSL via NPM on BrayNextcloudServer 192.168.1.103)
                        |
                        v
-        +----------------------------+
-        |    bray-music-ui (Docker)  |
-        |    FastAPI :7861           |
-        |    UI, API, history,       |
-        |    cover art orchestration |
-        +----------------------------+
-           |                    |
-           v                    v
-  +------------------+   +-----------------------------+
-  | ACE-Step 1.5     |   | Nextcloud Task Processing   |
-  | (native, systemd)|   | (BrayNextcloudServer)       |
-  | Gradio :7860     |   | core:text2image             |
-  | GTX 1080 Ti GPU  |   | Visionatrix SDXL            |
-  +------------------+   +-----------------------------+
+        +-------------------------------+
+        |    bray-music-ui (Docker)     |    ROG-STRIX (192.168.1.153)
+        |    FastAPI :7861              |
+        |    UI, API, history,          |
+        |    orchestrates all services  |
+        +-------------------------------+
+           |            |            |
+           v            v            v
+  +----------------+ +----------+ +-------------------+
+  | ACE-Step 1.5   | | Whisper  | | DreamShaper XL    |
+  | native systemd | | :7862    | | cover-art-service |
+  | Gradio :7860   | | CPU      | | :7863, GTX 1080Ti |
+  | GTX 1080 Ti    | +----------+ +-------------------+
+  +----------------+
+           |
+           v (lyrics + title)
+  +-------------------+
+  | Ollama            |    Optimus (192.168.1.145)
+  | gemma3:12b        |
+  | :11434            |
+  +-------------------+
 ```
 
 ### Data Flow
 
 1. User describes a song in the web UI (Simple or Custom mode)
-2. UI container sends parameters to ACE-Step's Gradio API via `host.docker.internal:7860`
-3. ACE-Step generates audio on the GTX 1080 Ti GPU (60-120 seconds)
-4. UI container downloads the FLAC file from Gradio's file server to the shared volume
-5. Track metadata is saved to `history.json`
-6. In the background, cover art is requested from Nextcloud's Task Processing API (Visionatrix SDXL on BrayNextcloudServer)
-7. If Nextcloud/Visionatrix fails, a Pillow gradient+text fallback cover is generated
+2. Ollama on Optimus generates lyrics and a song title (gemma3:12b)
+3. UI container sends parameters to ACE-Step's Gradio API via `host.docker.internal:7860`
+4. ACE-Step generates audio on the GTX 1080 Ti GPU (60-120 seconds)
+5. UI container downloads the FLAC file from Gradio's file server to the shared volume
+6. Track metadata is saved to `history.json`
+7. Whisper validates vocal quality (faster-whisper medium on CPU)
+8. Cover art is generated locally via DreamShaper XL on GTX 1080 Ti
+9. If DreamShaper XL is unavailable, a Pillow gradient fallback cover is generated
+
+### Generation Pipeline Steps
+
+Each generation produces a real-time status modal showing every step. Three machines are involved:
+
+| # | Step | Runs On | Model / Service |
+|---|------|---------|-----------------|
+| 1 | Load AI model | Optimus (192.168.1.145) | gemma3:12b via Ollama |
+| 2 | Write lyrics | Optimus (192.168.1.145) | gemma3:12b via Ollama |
+| 3 | Generate title | Optimus (192.168.1.145) | gemma3:12b via Ollama |
+| 4 | Submit to ACE-Step | ROG-STRIX (192.168.1.153) | — |
+| 5 | Initialize GPU | ROG-STRIX (192.168.1.153) | ACE-Step 1.5 (1.7B LM) |
+| 6 | Compose song structure | ROG-STRIX (192.168.1.153) | ACE-Step 1.5 LM (1.7B) on GTX 1080 Ti |
+| 7 | Generate audio | ROG-STRIX (192.168.1.153) | ACE-Step 1.5 DiT (diffusion) on GTX 1080 Ti |
+| 8 | Encode to FLAC | ROG-STRIX (192.168.1.153) | FFmpeg/numpy — 48kHz lossless |
+| 9 | Save to library | ROG-STRIX (192.168.1.153) | FastAPI writes history.json |
+| 10 | Verify vocal quality | ROG-STRIX (192.168.1.153) | faster-whisper medium/int8 on CPU |
+| 11 | Generate cover art | ROG-STRIX (192.168.1.153) | DreamShaper XL v1.0 (SDXL) on GTX 1080 Ti |
+
+**Notes:**
+- Steps 1-3 only appear for vocal tracks without user-provided lyrics/title
+- Steps 6-7 are the ACE-Step LM and DiT phases (shown as separate progress in the modal)
+- Step 10 is skipped for instrumental tracks
+- Step 11 uses a Pillow gradient fallback if DreamShaper XL is unavailable or vocals rated FAIR/POOR
+- The browser (on user's device, e.g. FIREFALL) connects via NPM proxy on BrayNextcloudServer (192.168.1.103)
 
 ---
 
@@ -89,7 +123,7 @@ Bray Music Studio is a self-hosted, AI-powered music generation web application.
 
 ### GPU Memory Utilization (Typical)
 
-When ACE-Step is loaded and idle, the GPU uses approximately 1900-2400 MiB. During generation, usage peaks near 4-6 GiB. Desktop compositing (GNOME Shell, Xwayland, gnome-remote-desktop) uses an additional ~480 MiB.
+With the 1.7B LM and CPU offloading, VRAM usage is very low at idle (~580-900 MiB). During generation, models are loaded one-at-a-time and peak at ~3.6 GB. Desktop compositing (GNOME Shell, Xwayland, gnome-remote-desktop) uses an additional ~480 MiB when active.
 
 ---
 
@@ -135,7 +169,7 @@ File: `/home/bobray/ACE-Step-1.5/.env`
 
 ```
 ACESTEP_CONFIG_PATH=acestep-v15-turbo
-ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-0.6B
+ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
 ACESTEP_LM_BACKEND=pt
 ACESTEP_DEVICE=auto
 ACESTEP_INIT_LLM=auto
@@ -146,24 +180,58 @@ PORT=7860
 | Variable | Purpose |
 |----------|---------|
 | `ACESTEP_CONFIG_PATH` | DiT model checkpoint to use. `acestep-v15-turbo` = turbo variant (8 inference steps instead of 32) |
-| `ACESTEP_LM_MODEL_PATH` | Language model for lyric/caption generation. `acestep-5Hz-lm-0.6B` = 0.6B parameter model (smallest, fits on 11 GB) |
-| `ACESTEP_LM_BACKEND` | `pt` = PyTorch backend (vs. `vllm` which requires newer GPU) |
+| `ACESTEP_LM_MODEL_PATH` | Language model for song structure/audio codes. `acestep-5Hz-lm-1.7B` = 1.7B parameter model (upgraded from 0.6B on 2026-03-06) |
+| `ACESTEP_LM_BACKEND` | `pt` = PyTorch backend (vs. `vllm` which requires Triton/CUDA >= 7.0, Pascal is 6.1) |
 | `ACESTEP_DEVICE` | `auto` = auto-detect GPU |
 | `ACESTEP_INIT_LLM` | `auto` = load LLM when first needed |
 | `SERVER_NAME` | Bind to all interfaces |
 | `PORT` | Gradio server port |
 
+**Important:** The `.env` file is only read by ACE-Step when `--enable_api` or `--service_mode` flags are used. Since the systemd service uses `--init_service true`, the LM model path must be passed explicitly via `--lm_model_path` in the ExecStart command.
+
 ### GPU Tier 4 Auto-Configuration
 
-ACE-Step's internal GPU tier system classifies the GTX 1080 Ti as **Tier 4** (Pascal GPUs). This auto-configures:
+ACE-Step's internal GPU tier system classifies the GTX 1080 Ti as **Tier 4** (8-12 GB). This auto-configures:
 
 - **DiT inference steps:** 8 (turbo mode, instead of 32 for base)
-- **Language model:** 0.6B parameters (with PyTorch backend)
-- **Quantization:** INT8
-- **Attention:** SDPA (Scaled Dot-Product Attention)
-- **Offloading:** CPU + DiT offload enabled (model components shuttle between CPU and GPU RAM)
+- **Language model:** 1.7B parameters (upgraded from 0.6B, with PyTorch backend)
+- **Quantization:** INT8 (DiT weights quantized via torchao `int8_weight_only`)
+- **Attention:** SDPA (Scaled Dot-Product Attention — Flash Attention requires Ampere+)
+- **Offloading:** `offload_to_cpu=True` + `offload_dit_to_cpu=True` (all models shuttle between CPU and GPU)
 
-No manual patches are needed. The GPU tier system handles Pascal limitations automatically. The only required fix was the cu124 PyTorch pin.
+The 1.7B LM is a manual override — Tier 4 officially recommends 0.6B only. This is safe because ACE-Step's sequential offload architecture ensures only one model occupies GPU VRAM at a time (see VRAM Safety Analysis below).
+
+### VRAM Safety Analysis (1.7B LM on 11 GB GPU)
+
+ACE-Step generation runs in **two sequential phases** that never overlap on GPU:
+
+**Phase 1 — LM (1.7B, bfloat16):**
+1. LM loaded from CPU to GPU (~3.5 GB, 0.4s)
+2. LM generates metadata + audio codes (~29s)
+3. LM offloaded back to CPU (~0.8s) + `torch.cuda.empty_cache()`
+
+**Phase 2 — DiT (quantized INT8):**
+1. Text encoder loaded to GPU → encode → offloaded to CPU
+2. DiT loaded to GPU (~2.5 GB) → diffusion (8 steps, ~4.3s) → offloaded to CPU
+3. VAE loaded to GPU (~0.5 GB) → decode → offloaded to CPU
+
+Each model is loaded via `_load_model_context()` context manager which guarantees GPU cleanup on exit.
+
+**Measured VRAM (1-minute instrumental, 2026-03-06):**
+
+| Phase | Peak VRAM | Free VRAM |
+|-------|-----------|-----------|
+| Idle | 580 MiB | 10.3 GB |
+| LM generation | ~3.5 GB | ~7.5 GB |
+| DiT diffusion | 3.58 GB | 7.4 GB |
+| VAE decode | 0.5 GB | 9.84 GB |
+| Post-generation | 898 MiB | 10.1 GB |
+
+**Safety mechanisms (verified from source code):**
+- `_vram_preflight_check()` skips when `offload_to_cpu=True` (models loaded one-at-a-time)
+- LM has its own `_load_model_context()` with reentrancy guard
+- Tiled VAE decode with `offload_wav_to_cpu=True` for large audio
+- `torch.cuda.empty_cache()` called after every model offload
 
 ### systemd Service
 
@@ -181,7 +249,7 @@ User=bobray
 Group=bobray
 WorkingDirectory=/home/bobray/ACE-Step-1.5
 EnvironmentFile=/home/bobray/ACE-Step-1.5/.env
-ExecStart=/home/bobray/.local/bin/uv run acestep --server-name 0.0.0.0 --port 7860 --init_service true
+ExecStart=/home/bobray/.local/bin/uv run acestep --server-name 0.0.0.0 --port 7860 --init_service true --lm_model_path acestep-5Hz-lm-1.7B --backend pt
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=300
@@ -198,6 +266,8 @@ WantedBy=multi-user.target
 
 Key details:
 - **`--init_service true`**: Pre-loads models at startup rather than on first request
+- **`--lm_model_path acestep-5Hz-lm-1.7B`**: Explicitly selects the 1.7B language model (required because `.env` vars are only read with `--enable_api`)
+- **`--backend pt`**: Forces PyTorch backend (Triton/vLLM requires CUDA Capability >= 7.0, GTX 1080 Ti is 6.1)
 - **`TimeoutStartSec=300`**: 5-minute startup timeout (model loading takes 2-3 minutes)
 - **`SupplementaryGroups=video render`**: Required for GPU device access
 - **`LimitMEMLOCK=infinity`**: Required for CUDA memory-mapped operations
@@ -217,8 +287,8 @@ All models are stored in `/home/bobray/ACE-Step-1.5/checkpoints/`:
 | `acestep-v15-turbo-shift1/` | 4.5 GB | Turbo shift1 variant (not used) |
 | `acestep-v15-turbo-shift3/` | 4.5 GB | Turbo shift3 variant (not used) |
 | `acestep-v15-turbo-continuous/` | 4.5 GB | Turbo continuous variant (not used) |
-| `acestep-5Hz-lm-0.6B/` | 1.3 GB | **Active** 0.6B language model |
-| `acestep-5Hz-lm-1.7B/` | 3.5 GB | 1.7B language model (not used) |
+| `acestep-5Hz-lm-0.6B/` | 1.3 GB | 0.6B language model (replaced by 1.7B on 2026-03-06) |
+| `acestep-5Hz-lm-1.7B/` | 3.5 GB | **Active** 1.7B language model (better genre adherence and composition) |
 | `acestep-5Hz-lm-4B/` | 7.9 GB | 4B language model (not used, too large for Pascal) |
 | `Qwen3-Embedding-0.6B/` | 1.2 GB | Embedding model for semantic features |
 | `vae/` | 322 MB | VAE decoder |

@@ -1,6 +1,6 @@
 """Cover art generation micro-service for Bray Music Studio.
 
-Runs on the host (ROG-STRIX) at port 7863. Uses Juggernaut XL (SDXL) on the
+Runs on the host (ROG-STRIX) at port 7863. Uses DreamShaper XL (SDXL) on the
 local GTX 1080 Ti to generate album cover art from text prompts.
 
 After each generation the process exits so systemd restarts it with a clean
@@ -27,14 +27,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cover Art Service")
 
-MODEL_ID = "RunDiffusion/Juggernaut-XL-v9"
+MODEL_ID = "Lykon/dreamshaper-xl-1-0"
 
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=1000)
-    negative_prompt: str = "text, watermark, logo, words, letters, signature, blurry, low quality, deformed"
-    steps: int = Field(default=25, ge=1, le=50)
-    guidance_scale: float = Field(default=7.0, ge=1.0, le=20.0)
+    negative_prompt: str = "(low quality, worst quality:1.4), text, watermark, logo, words, letters, signature, blurry, deformed"
+    steps: int = Field(default=30, ge=1, le=50)
+    guidance_scale: float = Field(default=5.0, ge=1.0, le=20.0)
     width: int = Field(default=512, ge=256, le=1024)
     height: int = Field(default=512, ge=256, le=1024)
     seed: int = Field(default=-1)
@@ -42,12 +42,17 @@ class GenerateRequest(BaseModel):
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
-    from diffusers import StableDiffusionXLPipeline
+    from diffusers import StableDiffusionXLPipeline, AutoencoderKL
 
-    logger.info("Loading Juggernaut XL (fp16)...")
+    logger.info("Loading DreamShaper XL (fp16)...")
     try:
+        # Use fp16-safe VAE to avoid float32 upcast OOM on 11 GB GPU
+        vae = AutoencoderKL.from_pretrained(
+            "madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16
+        )
         pipe = StableDiffusionXLPipeline.from_pretrained(
             MODEL_ID,
+            vae=vae,
             torch_dtype=torch.float16,
             use_safetensors=True,
             variant="fp16",

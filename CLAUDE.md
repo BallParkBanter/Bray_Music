@@ -8,7 +8,7 @@ Custom AI music generation UI built on top of ACE-Step 1.5, running on ROG-STRIX
 - **Raw Gradio UI:** http://192.168.1.153:7860 (LAN only, direct access for debugging)
 - **ACE-Step REST API:** http://192.168.1.153:8001 (mapped from container port 8000)
 - **Custom UI API:** http://192.168.1.153:7861 (FastAPI backend)
-- **Cover art service:** http://192.168.1.153:7863 (Juggernaut XL, systemd `cover-art-service.service`)
+- **Cover art service:** http://192.168.1.153:7863 (DreamShaper XL, systemd `cover-art-service.service`)
 - **ACE-Step native install:** `/home/bobray/ACE-Step-1.5/` on ROG-STRIX (systemd `acestep.service`)
 - **Deployment dir on ROG-STRIX:** `/home/bobray/ace-step/` (docker-compose, .env, outputs)
 - **Output audio:** `/home/bobray/ace-step/outputs/api_audio/` on ROG-STRIX
@@ -30,7 +30,7 @@ browser → NPM (:443) → bray-music-ui (:7861, FastAPI Docker)
 Cover art generation:
 ```
 bray-music-ui → cover-art-service (:7863, native FastAPI, systemd)
-                    ↓ Juggernaut XL (SDXL) on local GTX 1080 Ti (~27s)
+                    ↓ DreamShaper XL (SDXL) on local GTX 1080 Ti (~32s)
                     ↓ (or Pillow gradient fallback if service unavailable)
                 /home/bobray/ace-step/outputs/covers/ (PNG files)
 ```
@@ -51,7 +51,7 @@ Bray_Music/                            ← Git repo (source of truth)
 ├── validate.py                        ← Deployment health check
 ├── AS-BUILT.md                        ← System documentation
 ├── whisper_service.py                 ← Whisper validation micro-service
-├── cover_art_service.py               ← Juggernaut XL cover art micro-service
+├── cover_art_service.py               ← DreamShaper XL cover art micro-service
 ├── cover-art-service.service          ← systemd unit for cover art service
 ├── plans/
 │   ├── 001-initial-deployment.md      ← Original BMS deployment plan
@@ -60,7 +60,11 @@ Bray_Music/                            ← Git repo (source of truth)
 │   ├── acestep-as-built.md            ← ACE-Step installation & patch docs
 │   ├── custom-ui-design.md            ← UI design decisions
 │   ├── ace-step-validation.md         ← Validation methodology & results
-│   └── quality-findings.md            ← Album quality audit findings
+│   ├── quality-findings.md            ← Album quality audit findings
+│   ├── cover-art-options.md           ← Cover art model research & options
+│   ├── acestep/                       ← ACE-Step 1.5 official docs (from GitHub)
+│   ├── dreamshaper-xl/                ← DreamShaper XL model guide & settings
+│   └── juggernaut-xl/                 ← Juggernaut XL docs (kept for reference)
 ├── mockup/
 │   ├── design-glassmorphism-v3.html   ← CHOSEN design (deployed)
 │   └── ...                            ← Other design explorations
@@ -142,11 +146,11 @@ git push origin main && git push github main
 - systemd service: `acestep.service` (auto-starts on boot)
 - Max song duration: **480 seconds (8 minutes)**
 - Default audio format: **FLAC, 48kHz lossless**
-- Language model: **0.6B** (1.7B caused OOM)
-- Cover art: Local Juggernaut XL (SDXL) via `cover-art-service` on port 7863, ~27s per image, Pillow gradient fallback
-- Cover art model loads on-demand, auto-unloads after 2 min idle to free VRAM for ACE-Step
-- Cover art VRAM: 7 GB loaded, 10.3 GB peak during generation (fits alongside ACE-Step idle 628 MiB)
-- Lyrics: Ollama (qwen3:4b on Optimus 192.168.1.145:11434)
+- Language model: **1.7B** (PyTorch backend; vllm/Triton requires CUDA Capability >= 7.0, Pascal is 6.1)
+- Cover art: Local Juggernaut XL v9 (SDXL) via `cover-art-service` on port 7863, ~27s per image, Pillow gradient fallback
+- Cover art VRAM: 7 GB loaded, 10.3 GB peak. Auto-unloads after 2 min idle to free GPU for ACE-Step
+- Cover art prompts: genre-specific visual styles (20 genres) + random art style pool (37 styles) for unknown genres
+- Lyrics: Ollama (gemma3:12b on Optimus 192.168.1.145:11434)
 
 ## Container Management
 

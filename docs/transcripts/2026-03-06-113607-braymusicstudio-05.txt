@@ -1,0 +1,674 @@
+
+ ▐▛███▜▌   Claude Code v2.1.69
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/projects/Bray_Music
+
+✻ Conversation compacted (ctrl+o for history)
+
+  ⎿  Read ui/cover_art.py (190 lines)
+  ⎿  Referenced file AS-BUILT.md
+  ⎿  Referenced file ui/static/index.html
+  ⎿  Read ui/gradio_client.py (428 lines)
+  ⎿  Referenced file ui/main.py
+
+● Let me read the key ACE-Step source files to understand the VRAM offload
+  mechanism.
+
+● Bash(ssh bobray@192.168.1.153 "find /home/bobray/ACE-Step-1.5/ -name
+      'init_service_offload_context.py' -o -name 'init_service_loader.py'
+      2>/dev/null")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/init_service
+     _offload_context.py
+     /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/init_service
+     _loader.py
+
+● Bash(ssh bobray@192.168.1.153 "find /home/bobray/ACE-Step-1.5/ -name
+      'generate_music.py' 2>/dev/null")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/generate_mus
+     ic.py
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/acestep/core/gene
+      ration/handler/init_service_offload_context.py")
+  ⎿  """Context manager for temporary model loading/offloading."""
+
+     import time
+     … +35 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/acestep/core/gene
+      ration/handler/init_service_loader.py")
+  ⎿  """Checkpoint and model-loading helpers for service initialization."""
+
+     import os
+     … +97 lines (ctrl+o to expand)
+
+● Now let me read the actual generation flow to see how offloading works during
+  generation:
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/acestep/core/gene
+      ration/handler/generate_music.py")
+  ⎿  """Top-level ``generate_music`` orchestration mixin.
+
+     This module provides the public ``generate_music`` entry point extract
+     … +153 lines (ctrl+o to expand)
+
+● Now let me find where service_generate actually uses the context managers:
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn
+      '_load_model_context\|service_generate\|_run_generate_music_service'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handle…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/service_gene
+     rate_execute_test.py:8:from acestep.core.generation.handler.service_ge
+     nerate_execute import ServiceGenerateExecuteMixin
+     … +88 lines (ctrl+o to expand)
+
+● Now let me see the actual service_generate to understand how it sequences
+  model loading:
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/acestep/core/gene
+      ration/handler/service_generate.py")
+  ⎿  """Service-generate orchestration entrypoint for handler decomposition
+     .
+     … +92 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn '_load_model_context' /home/bobray/ACE
+      -Step-1.5/acestep/core/generation/handler/service_generate_execute.py
+      /home/bobray/ACE-…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/service_gene
+     rate_execute.py:122:            with self._load_model_context("model")
+     :
+     … +9 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/acestep/core/gene
+      ration/handler/service_generate_execute.py")
+  ⎿  """Execution helpers for service generation diffusion and output assem
+     bly."""
+     … +146 lines (ctrl+o to expand)
+
+● Now let me check the _prepare_batch / preprocess_batch flow — this is where
+  the LM runs:
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn '_load_model_context\|def
+      preprocess_batch\|def _prepare_batch'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/ --…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/audio_codes.
+     py:16:    - Methods: ``_load_model_context``, ``process_src_audio``, `
+     `is_silence``,
+     … +47 lines (ctrl+o to expand)
+
+● Now I have the complete picture. Let me also check where the LM (language
+  model) fits in — it's inside the "model" (DiT):
+
+● Bash(ssh bobray@192.168.1.153 "grep -n
+      'lm_model\|language_model\|lm_head\|music_lm\|5Hz_lm\|lm_checkpoint'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn
+      'lm_model\|language_model\|5Hz.lm\|lm_checkpoint\|def initialize_service'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/h…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'lm\|language_model\|1.7B\|0.6B'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/init_service.py
+      | head -20")
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'lm'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/init_service.py
+      2>/dev/null | head -30")
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "ls
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/")
+  ⎿  audio_codes.py
+     batch_prep.py
+     conditioning_batch.py
+     … +34 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'lm\|1\.7B\|0\.6B' /home/bobray/ACE-St
+      ep-1.5/acestep/core/generation/handler/init_service_orchestrator.py | head
+       -20")
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'lm\|1\.7B\|0\.6B\|language'
+      /home/bobray/ACE-Step-1.5/acestep/ --include='*.py' -l 2>/dev/null | head
+      -20")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/model_downloader.py
+     /home/bobray/ACE-Step-1.5/acestep/openrouter_models.py
+     /home/bobray/ACE-Step-1.5/acestep/training_v2/model_loader.py
+     … +18 lines (ctrl+o to expand)
+
+● The LM is embedded inside the DiT model (it's part of self.model). Let me
+  verify:
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn
+      'class.*Dit\|class.*ACEStep\|lm_model\|language_model'
+      /home/bobray/ACE-Step-1.5/acestep/model/ --include='*.py' 2>/dev/null…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "find /home/bobray/ACE-Step-1.5/ -name '*.py'
+      -path '*/model*' 2>/dev/null | head -15")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/model_downloader.py
+     /home/bobray/ACE-Step-1.5/acestep/training_v2/model_loader.py
+     /home/bobray/ACE-Step-1.5/acestep/training_v2/model_discovery.py
+     … +16 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'lm_model\|music_lm\|MusicLM\|class
+      ACE\|self\.lm'
+      /home/bobray/ACE-Step-1.5/acestep/models/sft/modeling_acestep_v15_base.py
+      |…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "head -100 /home/bobray/ACE-Step-1.5/acestep/mod
+      els/sft/modeling_acestep_v15_base.py")
+  ⎿  # Copyright 2025 The ACESTEO Team. All rights reserved.
+     #
+     # Licensed under the Apache License, Version 2.0 (the "License");
+     … +52 lines (ctrl+o to expand)
+
+● The LM is embedded within the DiT model as a sub-component. Let me check what
+  gets loaded for different model sizes:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n
+      'tokenizer\|detokenizer\|lm_head\|lyric\|class ACEStep\|class AceStep'
+      /home/bobray/ACE-Step-1.5/acestep/models/sft/modeling_a…)
+  ⎿  256:class AceStepAttention(nn.Module):
+     374:class AceStepEncoderLayer(GradientCheckpointingLayer):
+     443:class AceStepDiTLayer(GradientCheckpointingLayer):
+     … +25 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'class AceStepModel\|class AceStep(' /h
+      ome/bobray/ACE-Step-1.5/acestep/models/sft/modeling_acestep_v15_base.py")
+  ⎿  Error: Exit code 1
+
+● Bash(ssh bobray@192.168.1.153 "grep -n '^class ' /home/bobray/ACE-Step-1.5/ace
+      step/models/sft/modeling_acestep_v15_base.py")
+  ⎿  200:class TimestepEmbedding(nn.Module):
+     256:class AceStepAttention(nn.Module):
+     374:class AceStepEncoderLayer(GradientCheckpointingLayer):
+     … +11 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '1557,1620p' /home/bobray/ACE-Step-1.5/a
+      cestep/models/sft/modeling_acestep_v15_base.py")
+  ⎿  class AceStepConditionGenerationModel(AceStepPreTrainedModel):
+         """
+         Main conditional generation model for AceStep.
+     … +40 lines (ctrl+o to expand)
+
+● Now I understand the full picture. The LM (0.6B/1.7B) is not inside self.model
+   (the DiT). The LM is a separate process. Let me verify:
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn
+      'lm_service\|lm_client\|lm_generate\|lm_inference\|nano.vllm\|think\|CoT'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/h…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn '5Hz\|think\|lm'
+      /home/bobray/ACE-Step-1.5/acestep/core/ --include='*.py' -l 2>/dev/null |
+      head -20")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/core/scoring/scoring_test.py
+     /home/bobray/ACE-Step-1.5/acestep/core/scoring/lm_score.py
+     /home/bobray/ACE-Step-1.5/acestep/core/scoring/__init__.py
+     … +17 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'lm_service\|lm_client\|lm_generate\|5
+      Hz.*lm\|language_model\|llm_service\|llm_client\|nano_vllm\|nanovllm'
+      /home/bobray/ACE-…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/model_downloader.py
+     /home/bobray/ACE-Step-1.5/acestep/ui/streamlit/components/settings_pan
+     el.py
+     … +21 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "head -100
+      /home/bobray/ACE-Step-1.5/acestep/llm_inference.py")
+  ⎿  """
+     5Hz LM (Language Model) Handler
+     Handles all LM-related operations including initialization and generat
+     … +52 lines (ctrl+o to expand)
+
+● Now I can see the full picture. Let me check how the LM gets loaded and if it
+  uses CPU offload:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'def initialize\|offload_to_cpu\|def
+      _init_pt\|def _init_vllm\|def unload\|to.cpu\|to.cuda\|to.self.device'
+      /home/bobray/ACE-S…)
+  ⎿  63:        self.offload_to_cpu = False
+     81:    def unload(self) -> None:
+     354:            if not self.offload_to_cpu:
+     … +16 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '448,560p'
+      /home/bobray/ACE-Step-1.5/acestep/llm_inference.py")
+  ⎿      def initialize(
+             self,
+             checkpoint_dir: str,
+     … +80 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '560,700p'
+      /home/bobray/ACE-Step-1.5/acestep/llm_inference.py")
+  ⎿              gpu_config = get_global_gpu_config()
+                 # Use max_duration_with_lm since LM is being initialized
+                 max_duration_for_constraint = gpu_config.max_duration_with
+     … +115 lines (ctrl+o to expand)
+
+● Now let me check the critical piece — the _load_pytorch_model and the LM's CPU
+   offload during generation:
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '3840,3900p'
+      /home/bobray/ACE-Step-1.5/acestep/llm_inference.py")
+  ⎿              skip_language=skip_language,
+                 generation_phase=generation_phase,
+                 caption=caption,
+     … +27 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '3900,3930p'
+      /home/bobray/ACE-Step-1.5/acestep/llm_inference.py")
+  ⎿              if torch.cuda.is_available():
+                     torch.cuda.empty_cache()
+                 elif hasattr(torch, 'xpu') and torch.xpu.is_available():
+     … +18 lines (ctrl+o to expand)
+
+● Now let me check how the LM and DiT interact during generation — specifically
+  the orchestrator that calls both:
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'llm_handler\|lm_handler\|LLMHandler\|
+      llm_generate\|lm_generate\|think\|cot\|5hz_lm'
+      /home/bobray/ACE-Step-1.5/acestep/ui/gra…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'llm_handler\|LLMHandler'
+      /home/bobray/ACE-Step-1.5/acestep/ --include='*.py' | grep -v test | grep
+      -v __pycache__ | head -20…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/ui/streamlit/components/generation_w
+     izard.py:16:    get_llm_handler,
+     /home/bobray/ACE-Step-1.5/acestep/ui/streamlit/components/generation_w
+     … +29 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn
+      'llm_handler\|LLMHandler\|generate_wrapper\|generation_wrapper'
+      /home/bobray/ACE-Step-1.5/acestep/ui/gradio/ --include='*.py'…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/ui/gradio/events/results/generation_
+     progress.py:37:    dit_handler, llm_handler,
+     /home/bobray/ACE-Step-1.5/acestep/ui/gradio/events/results/generation_
+     … +37 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'def generate_music\b'
+      /home/bobray/ACE-Step-1.5/acestep/ --include='*.py' | grep -v test | grep
+      -v __pycache__ | head -10")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/inference.py:310:def generate_music(
+     /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/generate_mus
+     ic.py:94:    def generate_music(
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '310,450p'
+      /home/bobray/ACE-Step-1.5/acestep/inference.py")
+  ⎿  def generate_music(
+         dit_handler,
+         llm_handler,
+     … +102 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '450,550p'
+      /home/bobray/ACE-Step-1.5/acestep/inference.py")
+  ⎿              max_inference_batch_size = int(config.lm_batch_chunk_size)
+      if config.lm_batch_chunk_size > 0 else actual_batch_size
+                 num_chunks = math.ceil(actual_batch_size / max_inference_b
+     … +75 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '550,620p'
+      /home/bobray/ACE-Step-1.5/acestep/inference.py")
+  ⎿                      lyrics=dit_input_lyrics)
+                     if not params.bpm:
+                         params.cot_bpm = bpm
+     … +52 lines (ctrl+o to expand)
+
+● Now I have the complete picture. Let me check the current ACE-Step config to
+  confirm what settings are active:
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/.env")
+  ⎿  ACESTEP_CONFIG_PATH=acestep-v15-turbo
+     ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
+     ACESTEP_LM_BACKEND=pt
+     … +4 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "nvidia-smi
+      --query-gpu=memory.total,memory.used,memory.free --format=csv,noheader")
+  ⎿  11264 MiB, 3132 MiB, 8026 MiB
+
+● Now let me verify the gpu_config to understand what tier settings are active
+  and how offload gets set:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'offload_to_cpu\|offload_dit\|class.*Ti
+      er\|tier.*=\|\"4\"\|\"5\"\|tier_4\|tier_5\|11.*GB\|11264\|lm_memory'
+      /home/bobray/ACE-S…)
+  ⎿  154:    offload_to_cpu_default: bool  # Whether offload_to_cpu should
+     be enabled by default
+     155:    offload_dit_to_cpu_default: (
+     … +29 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'def
+      get_gpu_tier\|tier_name\|11.*GB\|\"tier4\"\|\"tier5\"\|>= 8\|>= 12\|< 12'
+      /home/bobray/ACE-Step-1.5/acestep/gpu_config.py…)
+  ⎿  228:    "tier4": {  # 8-12GB
+     246:    "tier5": {  # 12-16GB
+     266:        # Empirical batch tests (60s, turbo): noLM-4→13.3GB, LM-2→
+     … +10 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '598,630p'
+      /home/bobray/ACE-Step-1.5/acestep/gpu_config.py")
+  ⎿  def get_gpu_tier(gpu_memory_gb: float) -> str:
+         """
+         Determine GPU tier based on available memory.
+     … +26 lines (ctrl+o to expand)
+
+● Now I have the complete understanding. Our GTX 1080 Ti has 11 GB → Tier 4
+  (8-12 GB). Let me check how the init code uses these tier settings:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n
+      'offload_to_cpu\|offload_dit\|gpu_config\|get_global'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/init_service.p…)
+  ⎿  (No output)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'offload_to_cpu\|offload_dit' /home/bo
+      bray/ACE-Step-1.5/acestep/core/generation/handler/init_service_setup.py |
+      head -20")
+  ⎿  161:        offload_to_cpu: bool,
+     162:        offload_dit_to_cpu: bool,
+     175:        status_msg += f"Offload to CPU: {offload_to_cpu}\n"
+     … +2 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'offload_to_cpu\|offload_dit'
+      /home/bobray/ACE-Step-1.5/acestep/core/generation/handler/init_service_orc
+      hestrator.py | head -…)
+  ⎿  22:        offload_to_cpu: bool = False,
+     23:        offload_dit_to_cpu: bool = False,
+     42:            self.offload_to_cpu = offload_to_cpu
+     … +5 lines (ctrl+o to expand)
+
+● Now let me check who calls this with the actual values — the Gradio app init:
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn
+      'offload_to_cpu\|offload_dit\|initialize_service' /home/bobray/ACE-Step-1.
+      5/acestep/ui/gradio/events/generation/service_init.…)
+  ⎿  29:    offload_to_cpu, offload_dit_to_cpu, compile_model, quantization
+     ,
+     86:    # project_root would cause initialize_service to append "checkp
+     … +13 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '25,40p' /home/bobray/ACE-Step-1.5/acest
+      ep/ui/gradio/events/generation/service_init.py")
+  ⎿  def init_service_wrapper(
+         dit_handler, llm_handler, checkpoint, config_path, device,
+         init_llm, lm_model_path, backend, use_flash_attention,
+     … +14 lines (ctrl+o to expand)
+
+● Now let me verify what values are actually being used by checking the logs:
+
+● Bash(ssh bobray@192.168.1.153 "journalctl -u acestep --tail 60 2>/dev/null |
+      grep -i 'offload\|tier\|lm.*init\|lm.*load\|1.7B\|0.6B\|initialize_service
+      \|Offload'")
+  ⎿  Error: Exit code 1
+
+● Bash(ssh bobray@192.168.1.153 "journalctl -u acestep --no-pager 2>/dev/null |
+      grep -i 'offload\|tier\|Tier\|initialize_service' | tail -20")
+  ⎿  Mar 06 10:43:56 bobray-ROG-STRIX acestep[513983]: 2026-03-06 10:43:56.
+     699 | INFO     | acestep.core.generation.handler.init_service_offload_
+     context:_load_model_context:57 - [_load_model_context] Offloading text
+     … +62 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "journalctl -u acestep --no-pager 2>/dev/null |
+      grep -i 'offload\|Offload\|5Hz LM\|1\.7B\|lm_model\|backend\|PyTorch
+      backend\|Tier\|tie…)
+  ⎿  Mar 06 10:43:58 bobray-ROG-STRIX acestep[513983]: 2026-03-06 10:43:58.
+     450 | INFO     | acestep.core.generation.handler.init_service_offload_
+     context:_load_model_context:52 - [_load_model_context] Loaded model to
+     … +81 lines (ctrl+o to expand)
+
+● Wait — the logs show it loaded 0.6B, not 1.7B! Let me check more carefully:
+
+● Bash(ssh bobray@192.168.1.153 "journalctl -u acestep --no-pager 2>/dev/null |
+      grep -i '5Hz-lm\|lm_model_path\|lm-0\.\|lm-1\.' | tail -10")
+  ⎿  Mar 06 08:40:04 bobray-ROG-STRIX acestep[513983]: 2026-03-06 08:40:04.
+     283 | INFO     | acestep.llm_inference:get_gpu_memory_utilization:172
+     - Adaptive LM memory allocation: model=/home/bobray/ACE-Step-1.5/check
+     … +23 lines (ctrl+o to expand)
+
+● Interesting! Despite setting .env to acestep-5Hz-lm-1.7B, it loaded 0.6B. The
+  .env says 1.7B but the log says "Available LM Models: ['acestep-5Hz-lm-0.6B']"
+   — meaning the 1.7B model hasn't been downloaded. Let me verify:
+
+● Bash(ssh bobray@192.168.1.153 "ls -la /home/bobray/ACE-Step-1.5/checkpoints/ |
+       grep lm")
+  ⎿  drwxrwxr-x  3 bobray bobray 4096 Mar  3 23:04 acestep-5Hz-lm-0.6B
+     drwxrwxr-x  2 bobray bobray 4096 Mar  3 23:04 acestep-5Hz-lm-1.7B
+     drwxrwxr-x  3 bobray bobray 4096 Mar  3 23:07 acestep-5Hz-lm-4B
+
+● Bash(ssh bobray@192.168.1.153 "ls -la
+      /home/bobray/ACE-Step-1.5/checkpoints/acestep-5Hz-lm-1.7B/ | head -20")
+  ⎿  total 3667424
+     drwxrwxr-x  2 bobray bobray       4096 Mar  3 23:04 .
+     drwxrwxr-x 14 bobray bobray       4096 Mar  3 23:12 ..
+     … +12 lines (ctrl+o to expand)
+
+● The 1.7B model IS downloaded (3.7 GB). The issue is that it fell back to 0.6B.
+   Let me check what controls the model selection in the Gradio UI init:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n
+      'lm_model_path\|ACESTEP_LM_MODEL\|Available LM\|default LM'
+      /home/bobray/ACE-Step-1.5/acestep/ui/gradio/events/generation/serv…)
+  ⎿  28:    init_llm, lm_model_path, backend, use_flash_attention,
+     69:    if init_llm and lm_model_path and gpu_config.available_lm_model
+     s:
+     … +10 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '69,80p' /home/bobray/ACE-Step-1.5/acest
+      ep/ui/gradio/events/generation/service_init.py")
+  ⎿      if init_llm and lm_model_path and gpu_config.available_lm_models:
+             if not is_lm_model_size_allowed(lm_model_path, gpu_config.avai
+     lable_lm_models):
+     … +14 lines (ctrl+o to expand)
+
+● The key finding: is_lm_model_size_allowed just warns but doesn't block. The
+  real issue is that the Gradio UI is auto-selecting the default model,
+  overriding our .env. Let me check:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'Using default
+      LM\|lm_model_path\|ACESTEP_LM_MODEL'
+      /home/bobray/ACE-Step-1.5/acestep/ui/gradio/ -r --include='*.py' | grep
+      -v…)
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/ui/gradio/events/generation/service_
+     init.py:28:    init_llm, lm_model_path, backend, use_flash_attention,
+     /home/bobray/ACE-Step-1.5/acestep/ui/gradio/events/generation/service_
+     … +31 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "grep -rn 'Using default LM\|Available LM'
+      /home/bobray/ACE-Step-1.5/acestep/ --include='*.py' | grep -v test | grep
+      -v __pycache__")
+  ⎿  /home/bobray/ACE-Step-1.5/acestep/acestep_v15_pipeline.py:163:    prin
+     t(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}"
+     )
+     … +9 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '490,520p'
+      /home/bobray/ACE-Step-1.5/acestep/acestep_v15_pipeline.py")
+  ⎿              # Initialize LM handler if requested
+                 # Auto-determine init_llm based on GPU config if not expli
+     citly set
+     … +19 lines (ctrl+o to expand)
+
+● Found it. When args.lm_model_path is None, it falls back to
+  available_lm_models[0] which is 0.6B. But we set it in .env. Let me check if
+  .env is actually used:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'ACESTEP_LM_MODEL_PATH\|lm_model_path'
+      /home/bobray/ACE-Step-1.5/acestep/acestep_v15_pipeline.py | head -15")
+  ⎿  91:                          'init_llm', 'lm_model_path', 'backend', '
+     use_flash_attention',
+     275:        "--lm_model_path",
+     … +15 lines (ctrl+o to expand)
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '365,420p'
+      /home/bobray/ACE-Step-1.5/acestep/acestep_v15_pipeline.py")
+  ⎿          args.init_service = True
+             # Load config from .env if not specified
+             if args.config_path is None:
+     … +35 lines (ctrl+o to expand)
+
+● Now I see the full picture. The .env var
+  ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B IS read at line 370. But then later
+  at line 501, if args.lm_model_path is still None (which it shouldn't be), it
+  falls back. The log says "Available LM Models: ['acestep-5Hz-lm-0.6B']" — that
+   means Tier 4 config only lists 0.6B as available. Let me check:
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '228,250p'
+      /home/bobray/ACE-Step-1.5/acestep/gpu_config.py")
+  ⎿      "tier4": {  # 8-12GB
+             # Can keep DiT + 0.6B LM simultaneously on GPU (4.46+1.2+0.6=6
+     .26GB).
+     … +18 lines (ctrl+o to expand)
+
+● OK — so Tier 4 officially only supports 0.6B. BUT the .env is definitely read
+  and should override the dropdown. The log saying "Available LM Models:
+  ['acestep-5Hz-lm-0.6B']" is just the GPU config's recommendation, not what was
+   actually loaded.
+
+  Let me re-read the log more carefully — it actually loaded 0.6B despite the
+  .env saying 1.7B. The question is: did the restart happen AFTER we changed the
+   .env?
+
+● Bash(ssh bobray@192.168.1.153 "cat /home/bobray/ACE-Step-1.5/.env && echo
+      '---' && journalctl -u acestep --no-pager 2>/dev/null | grep 'LM model:' |
+       tail -5")
+  ⎿  ACESTEP_CONFIG_PATH=acestep-v15-turbo
+     ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
+     ACESTEP_LM_BACKEND=pt
+     … +15 lines (ctrl+o to expand)
+
+● It keeps using default! The .env says 1.7B but the code keeps saying "Using
+  default LM model: 0.6B". This means args.lm_model_path is None by the time it
+  reaches line 501 — the .env isn't being loaded because ACE-Step isn't using
+  .env files natively. Let me check:
+
+● Bash(ssh bobray@192.168.1.153 "cat /etc/systemd/system/acestep.service")
+  ⎿  [Unit]
+     Description=ACE-Step 1.5 Music Generation Server
+     After=network-online.target
+     … +26 lines (ctrl+o to expand)
+
+● The EnvironmentFile=/home/bobray/ACE-Step-1.5/.env is set, so the env vars
+  should be available. The issue is the ExecStart doesn't pass --lm_model_path.
+  Let me check the argparse:
+
+  The code at line 369-370 says:
+  if args.lm_model_path is None:
+      args.lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH")
+
+  But this is inside a block at line 365: args.init_service = True. Let me check
+   the condition:
+
+● Bash(ssh bobray@192.168.1.153 "sed -n '355,375p'
+      /home/bobray/ACE-Step-1.5/acestep/acestep_v15_pipeline.py")
+  ⎿          "--api-key",
+             type=str,
+             default=None,
+     … +19 lines (ctrl+o to expand)
+
+● Found the bug. The .env loading is guarded by if args.enable_api: — our
+  systemd service runs with --init_service true but NOT --enable_api. So the env
+   vars are never read.
+
+  We have two options:
+  1. Add --lm_model_path acestep-5Hz-lm-1.7B to the systemd ExecStart
+  2. Add --enable_api flag
+
+  Let me also check if --init_service true has its own .env loading:
+
+● Bash(ssh bobray@192.168.1.153 "grep -n 'init_service\|init_llm'
+      /home/bobray/ACE-Step-1.5/acestep/acestep_v15_pipeline.py | head -20")
+  ⎿  91:                          'init_llm', 'lm_model_path', 'backend', '
+     use_flash_attention',
+     244:        "--init_service",
+     … +17 lines (ctrl+o to expand)
+
+● Confirmed: --init_service does NOT load from .env. The .env is only read when
+  --enable_api or --service_mode is used.
+
+  Now I have the complete, verified understanding. Here's the summary:
+
+  ---
+  Complete VRAM Safety Analysis for 1.7B LM on GTX 1080 Ti (11 GB)
+
+  Architecture: Sequential, Not Concurrent
+
+  The generation pipeline runs two separate phases that never overlap on GPU:
+
+  1. Phase 1: LM (LLMHandler.generate_with_stop_condition()) — generates
+  metadata + audio codes
+  2. Phase 2: DiT (dit_handler.generate_music()) — generates audio latents from
+  codes
+
+  The LM has its own _load_model_context() that:
+  - Loads LM to GPU → runs inference → offloads back to CPU → calls
+  torch.cuda.empty_cache()
+
+  The DiT handler has its own _load_model_context() for each sub-model:
+  - text_encoder → GPU → encode → CPU
+  - model (DiT) → GPU → diffuse → CPU
+  - vae → GPU → decode → CPU
+
+  Each model moves to GPU one-at-a-time, runs, then moves back to CPU. They
+  never coexist on GPU.
+
+  VRAM Budget
+
+  ┌───────────────────────┬────────────┬───────────────────────────┐
+  │       Component       │ VRAM (GPU) │           When            │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ 1.7B LM (bfloat16)    │ ~3.5 GB    │ Phase 1 only              │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ DiT (int8 quantized)  │ ~2.5 GB    │ Phase 2 only              │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ VAE                   │ ~0.5 GB    │ Phase 2 decode only       │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ Text encoder          │ ~0.6 GB    │ Phase 2 conditioning only │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ Inference activations │ ~2-4 GB    │ During forward pass       │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ Peak                  │ ~6-7 GB    │ Either phase              │
+  ├───────────────────────┼────────────┼───────────────────────────┤
+  │ Available             │ 11 GB      │ Always                    │
+  └───────────────────────┴────────────┴───────────────────────────┘
+
+  Safety Mechanisms (verified from source code)
+
+  1. offload_to_cpu=True (Tier 4 default): All models start on CPU, move to GPU
+  only inside _load_model_context(), auto-return to CPU after
+  2. offload_dit_to_cpu=True (Tier 4 default): DiT also offloaded between steps
+  3. INT8 quantization (Tier 4 default): DiT quantized to reduce weight memory
+  4. VRAM preflight check skipped when offload_to_cpu=True: Because models are
+  loaded one-at-a-time, the check is unnecessary
+  5. torch.cuda.empty_cache() called after every offload
+  6. Tiled VAE decode: Large audio decoded in chunks, with wav offloaded to CPU
+  7. LM's own _load_model_context(): Has reentrancy guard, moves model GPU↔CPU
+
+  Current Problem
+
+  The .env file sets ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B but ACE-Step
+  never reads it because .env loading is gated behind --enable_api or
+  --service_mode flags. Our systemd service only uses --init_service true, so it
+   falls back to "default LM model" which is 0.6B.
+
+  Fix
+
+  We need to pass --lm_model_path acestep-5Hz-lm-1.7B directly in the systemd
+  ExecStart, and also set --backend pt (since vllm/Triton doesn't work on
+  Pascal).
+
+  The 1.7B is safe because:
+  - Peak VRAM during LM phase: ~3.5 GB weights + ~2 GB activations = ~5.5 GB (11
+   GB available)
+  - Peak VRAM during DiT phase: ~2.5 GB weights + ~4 GB activations = ~6.5 GB
+  (11 GB available)
+  - They never overlap — sequential phases with full GPU cleanup between them
+
+  Want me to update the systemd service to use the 1.7B model?
+
+✻ Crunched for 8m 42s
