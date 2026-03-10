@@ -560,7 +560,7 @@ async function readSSEStream(response, extraHandler) {
     });
     // Try polling for the result
     trackData = await pollForNewTrack();
-    if (trackData) markAllStepsDone();
+    if (trackData) markAllStepsDone(trackData);
   }
 
   if (gotError && !trackData) {
@@ -577,31 +577,81 @@ async function readSSEStream(response, extraHandler) {
 
 async function pollForNewTrack(maxWait = 300000, interval = 5000) {
   const start = Date.now();
+  let trackId = null;
   while (Date.now() - start < maxWait) {
     try {
       const r = await fetch('/history?sort=newest&search=');
       const data = await r.json();
       if (data.total > _lastTrackCount && data.tracks.length > 0) {
-        return data.tracks[0]; // newest track
+        trackId = data.tracks[0].id;
+        break;
       }
     } catch(e) { /* retry */ }
     await new Promise(ok => setTimeout(ok, interval));
-    // Update elapsed timer text
     const el = document.getElementById('gen-elapsed');
     if (el) {
       const secs = Math.round((Date.now() - genStartTime) / 1000);
       el.textContent = 'Elapsed: ' + secs + 's (waiting for server...)';
     }
   }
+  if (!trackId) return null;
+  // Wait for post-processing (whisper + cover art) to finish, then re-fetch
+  const el = document.getElementById('gen-elapsed');
+  if (el) el.textContent = 'Finishing up (validating & cover art)...';
+  // Poll until quality_rating or cover_art appears (max 3 min)
+  const ppStart = Date.now();
+  while (Date.now() - ppStart < 180000) {
+    await new Promise(ok => setTimeout(ok, 5000));
+    try {
+      const r = await fetch('/track/' + trackId);
+      if (r.ok) {
+        const track = await r.json();
+        if (track.quality_rating || track.cover_art) return track;
+      }
+    } catch(e) { /* retry */ }
+  }
+  // Fallback: return whatever we have
+  try {
+    const r = await fetch('/track/' + trackId);
+    if (r.ok) return await r.json();
+  } catch(e) { /* ignore */ }
   return null;
 }
 
-function markAllStepsDone() {
+function markAllStepsDone(trackData) {
   document.querySelectorAll('.gen-step').forEach(s => {
     if (s.style.display === 'none') return;
     s.className = 'gen-step done';
     s.querySelector('.gen-step-icon').textContent = '\u2713';
+    // Strip "(reconnecting...)" text
+    const span = s.querySelector('span');
+    if (span) span.textContent = span.textContent.replace(/\s*\(reconnecting\.\.\.\)/, '');
   });
+  // Reconstruct detail text from track metadata when available
+  if (trackData) {
+    const dur = trackData.duration_sec || 0;
+    const durM = Math.floor(dur / 60);
+    const durS = Math.round(dur % 60);
+    const seed = trackData.seed || '?';
+    const setDetail = (id, text) => { const el = document.getElementById(id); if (el) el.querySelector('span').textContent = text; };
+    if (trackData.lyrics && trackData.lyrics.trim() && trackData.lyrics.trim() !== '[Instrumental]') {
+      const lyrEl = document.getElementById('gs-lyrics');
+      if (lyrEl && lyrEl.style.display !== 'none') setDetail('gs-lyrics', '\u270d\ufe0f Wrote ' + trackData.lyrics.length + ' chars of lyrics');
+    }
+    if (trackData.title) {
+      const tgEl = document.getElementById('gs-title-gen');
+      if (tgEl && tgEl.style.display !== 'none') setDetail('gs-title-gen', '\ud83c\udfb5 Title: \u201c' + trackData.title + '\u201d');
+    }
+    setDetail('gs-submit', '\ud83d\ude80 Submitted to ACE-Step on ROG-STRIX');
+    setDetail('gs-queue', '\u26a1 ACE-Step GPU ready (GTX 1080 Ti)');
+    setDetail('gs-save', '\ud83d\udcbe Saved \u2014 ' + durM + ':' + String(durS).padStart(2,'0') + ' \u00b7 FLAC \u00b7 seed ' + seed);
+    if (trackData.quality_rating) {
+      const qEmoji = {GREAT:'\ud83c\udf1f',GOOD:'\u2705',FAIR:'\ud83d\udfe1',POOR:'\ud83d\udd34'}[trackData.quality_rating]||'\ud83c\udfa4';
+      const qPct = Math.round((trackData.quality_score||0)*100);
+      setDetail('gs-validate', qEmoji + ' Vocals verified: ' + trackData.quality_rating + ' (' + qPct + '%)');
+    }
+    if (trackData.cover_art) setDetail('gs-cover', '\ud83c\udfa8 Cover art created');
+  }
 }
 
 async function doSimpleGen() {
@@ -669,7 +719,7 @@ async function doSimpleGen() {
         loadHistory();
         showSimpleStatus('Your song is ready!', '#10b981');
         { const b = document.getElementById('gen-cancel'); b.textContent = 'Done \u2014 Close'; b.classList.add('success'); }
-        markAllStepsDone();
+        markAllStepsDone(trackData);
       }
     }
 
@@ -1116,7 +1166,7 @@ async function doGen() {
         loadHistory();
         showStatus('Song generated!', '#10b981');
         { const b = document.getElementById('gen-cancel'); b.textContent = 'Done \u2014 Close'; b.classList.add('success'); }
-        markAllStepsDone();
+        markAllStepsDone(trackData);
       }
     }
 

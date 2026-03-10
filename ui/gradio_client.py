@@ -99,8 +99,8 @@ _GENRE_BPM = {
     "pop": 120, "dance": 128, "electronic": 130,
     "rock": 130, "punk": 160, "metal": 140,
     "jazz": 110, "blues": 85, "soul": 90, "r&b": 85,
-    "country": 110, "folk": 105, "indie": 115,
-    "reggae": 80, "latin": 100,
+    "country": 110, "country rock": 120, "folk": 105, "indie": 115,
+    "reggae": 80, "latin": 100, "latin pop": 105,
     "classical": 100, "ambient": 80,
     "j-pop": 128, "k-pop": 125,
 }
@@ -201,6 +201,16 @@ def _check_for_error(data: list) -> str | None:
         if isinstance(item, str) and item.startswith("Error:"):
             return item
     return None
+
+
+async def check_health(timeout: float = 5.0) -> bool:
+    """Check if ACE-Step Gradio API is reachable and responsive."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(f"{ACESTEP_URL}/gradio_api/info")
+            return r.status_code == 200
+    except Exception:
+        return False
 
 
 async def generate(req: GenerateRequest, genre_hint: str = "") -> dict:

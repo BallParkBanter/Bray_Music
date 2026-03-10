@@ -207,6 +207,7 @@ function renderSong() {
     +       '</div>'
     +       '<div class="action-btns">'
     +         '<button class="action-btn remix" onclick="remixTrack()">&#128260; Remix</button>'
+    +         '<button class="action-btn" id="regen-cover-btn" onclick="regenCover()">&#127912; New Cover</button>'
     +         '<button class="action-btn" onclick="dlTrack()">&#8595; Download</button>'
     +         '<button class="action-btn delete" onclick="delTrack()">&#128465; Delete</button>'
     +       '</div>'
@@ -367,6 +368,33 @@ async function delTrack() {
     }
   } catch(e) {
     alert('Error: ' + e.message);
+  }
+}
+
+async function regenCover() {
+  const btn = document.getElementById('regen-cover-btn');
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '&#9203; Generating...';
+  try {
+    const resp = await fetch('/track/' + track.id + '/regenerate-cover', { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: 'Failed' }));
+      alert('Cover art failed: ' + (err.detail || resp.statusText));
+      return;
+    }
+    const data = await resp.json();
+    track.cover_art = data.cover_art;
+    const coverEl = document.querySelector('.cover-art');
+    coverEl.style.background = 'none';
+    coverEl.innerHTML = '<img src="/cover/' + data.cover_art + '?t=' + Date.now() + '" alt="Cover art">';
+    btn.innerHTML = '&#9989; Done!';
+    setTimeout(() => { btn.innerHTML = origText; }, 2000);
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { btn.innerHTML = origText; }, 3000);
   }
 }
 

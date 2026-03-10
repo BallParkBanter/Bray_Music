@@ -19,6 +19,8 @@ async def _generate_visual_description(description: str, genre: str) -> str | No
         f"The song is: {description}. Genre: {genre}. "
         f"Describe a vivid visual SCENE (not music) that captures the mood and subject. "
         f"Focus on imagery: objects, settings, lighting, colors, atmosphere. "
+        f"Be original — avoid cliches like 'dust motes dance', 'bathed in golden light', "
+        f"'rays of light stream through', 'bathed in amber glow'. Find fresh, unexpected imagery. "
         f"Do NOT mention music, songs, albums, or audio. "
         f"Reply with ONLY the visual description in one sentence, under 40 words."
     )
@@ -145,22 +147,13 @@ async def _local_cover(track: TrackMeta, cover_path: Path) -> bool:
     # Use the AI visual scene if available, otherwise fall back to the raw description
     scene = visual_scene or description
 
-    if genre in _GENRE_VISUAL:
-        visual_style = _GENRE_VISUAL[genre]
-        prompt = (
-            f"Album cover art: {scene}, "
-            f"{visual_style}, "
-            f"highly detailed, beautiful composition, "
-            f"no text, no words, no letters, no watermark"
-        )
-    else:
-        art_style = random.choice(_ART_STYLES)
-        prompt = (
-            f"Album cover art: {scene}, "
-            f"{art_style}, "
-            f"highly detailed, beautiful composition, "
-            f"no text, no words, no letters, no watermark"
-        )
+    art_style = random.choice(_ART_STYLES)
+    prompt = (
+        f"Album cover art: {scene}, "
+        f"{art_style}, "
+        f"highly detailed, beautiful composition, "
+        f"no text, no words, no letters, no watermark"
+    )
 
     logger.info(f"Cover art prompt for {track.id}: {prompt}")
 

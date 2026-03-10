@@ -5,6 +5,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,7 +25,23 @@ from models import GenerateRequest, GenerateResponse, HistoryResponse, TrackMeta
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Bray Music Studio")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Pre-warm Ollama model on startup to avoid first-song timeout."""
+    logger.info("Startup: Pre-warming Ollama gemma3:12b...")
+    try:
+        was_cold = await lyrics_gen.ensure_model_loaded()
+        if was_cold:
+            logger.info("Startup: Ollama model loaded into GPU (cold start)")
+        else:
+            logger.info("Startup: Ollama model already warm")
+    except Exception as e:
+        logger.warning(f"Startup: Ollama pre-warm failed (will retry on first generation): {e}")
+    yield
+
+
+app = FastAPI(title="Bray Music Studio", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -280,35 +297,75 @@ async def _run_generation(
 
         await emit({"event": "step", "step": "submit", "state": "active"})
 
-        # Step: ACE-Step generation (streaming)
-        step_start = time.time()
-        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Submitting to ACE-Step...")
-        result_data = None
-        try:
-            async for evt in gradio_client.generate_streaming(req, genre_hint=genre_hint):
-                await emit(evt)
-
-                if evt.get("event") == "complete":
-                    result_data = evt["result"]
-                    elapsed = time.time() - step_start
-                    logger.info(f"[GEN {track_id[:8]}] ACESTEP: Complete in {elapsed:.1f}s — file: {result_data.get('filename', '?')}, seed: {result_data.get('seed', '?')}")
-                elif evt.get("event") == "error":
-                    elapsed = time.time() - step_start
-                    logger.error(f"[GEN {track_id[:8]}] ACESTEP: Error after {elapsed:.1f}s: {evt.get('message', '?')}")
-                    await emit(None)  # sentinel
-                    return
-                elif evt.get("event") == "progress":
-                    logger.info(f"[GEN {track_id[:8]}] ACESTEP: Progress {evt.get('progress', '?')}%")
-        except Exception as e:
-            elapsed = time.time() - step_start
-            logger.error(f"[GEN {track_id[:8]}] ACESTEP: Stream error after {elapsed:.1f}s: {e}")
-            await emit({"event": "error", "message": str(e)})
+        # Health check: verify ACE-Step is reachable before submitting
+        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Checking health...")
+        for hc_attempt in range(6):
+            if await gradio_client.check_health():
+                break
+            wait_time = 30
+            logger.warning(f"[GEN {track_id[:8]}] ACESTEP: Not reachable, waiting {wait_time}s (attempt {hc_attempt+1}/6)...")
+            await emit({"event": "step", "step": "submit", "state": "active",
+                        "detail": f"\u23f3 Waiting for ACE-Step ({hc_attempt+1}/6)..."})
+            await asyncio.sleep(wait_time)
+        else:
+            logger.error(f"[GEN {track_id[:8]}] ACESTEP: Unreachable after 3 minutes of waiting")
+            await emit({"event": "error", "message": "ACE-Step is not responding. Please try again in a few minutes."})
             await emit(None)
             return
 
+        # Step: ACE-Step generation with retry on crash
+        max_retries = 1
+        result_data = None
+        for attempt in range(max_retries + 1):
+            step_start = time.time()
+            logger.info(f"[GEN {track_id[:8]}] ACESTEP: Submitting to ACE-Step{' (retry)' if attempt > 0 else ''}...")
+            ace_error = None
+            try:
+                async for evt in gradio_client.generate_streaming(req, genre_hint=genre_hint):
+                    await emit(evt)
+
+                    if evt.get("event") == "complete":
+                        result_data = evt["result"]
+                        elapsed = time.time() - step_start
+                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Complete in {elapsed:.1f}s — file: {result_data.get('filename', '?')}, seed: {result_data.get('seed', '?')}")
+                    elif evt.get("event") == "error":
+                        elapsed = time.time() - step_start
+                        ace_error = evt.get("message", "Unknown error")
+                        logger.error(f"[GEN {track_id[:8]}] ACESTEP: Error after {elapsed:.1f}s: {ace_error}")
+                        break
+                    elif evt.get("event") == "progress":
+                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Progress {evt.get('progress', '?')}%")
+            except Exception as e:
+                elapsed = time.time() - step_start
+                ace_error = str(e)
+                logger.error(f"[GEN {track_id[:8]}] ACESTEP: Stream error after {elapsed:.1f}s: {e}")
+
+            if result_data:
+                break  # Success
+
+            # Failed — should we retry?
+            if attempt < max_retries:
+                logger.info(f"[GEN {track_id[:8]}] ACESTEP: Will retry (attempt {attempt+2}/{max_retries+1})...")
+                await emit({"event": "step", "step": "submit", "state": "active",
+                            "detail": "\u26a0\ufe0f ACE-Step crashed — waiting for restart, will retry..."})
+                # Wait for ACE-Step to restart (systemd takes 60-90s)
+                for wait_attempt in range(6):
+                    await asyncio.sleep(30)
+                    if await gradio_client.check_health():
+                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Back online after {(wait_attempt+1)*30}s")
+                        break
+                else:
+                    logger.error(f"[GEN {track_id[:8]}] ACESTEP: Not recovered after 3 min wait")
+                    await emit({"event": "error", "message": "ACE-Step crashed and did not recover"})
+                    await emit(None)
+                    return
+            else:
+                await emit({"event": "error", "message": f"Generation failed: {ace_error}"})
+                await emit(None)
+                return
+
         if not result_data:
-            elapsed = time.time() - step_start
-            logger.error(f"[GEN {track_id[:8]}] ACESTEP: No result after {elapsed:.1f}s")
+            logger.error(f"[GEN {track_id[:8]}] ACESTEP: No result after all attempts")
             await emit({"event": "error", "message": "No result from generator"})
             await emit(None)
             return
@@ -641,6 +698,26 @@ async def get_track(track_id: str):
     return track
 
 
+@app.post("/track/{track_id}/regenerate-cover")
+async def regenerate_cover(track_id: str):
+    track = await history_mod.get(track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    logger.info(f"[REGEN-COVER {track_id[:8]}] Starting cover art regeneration...")
+    try:
+        cover_file = await cover_art_mod.generate_cover(track)
+        if cover_file:
+            await history_mod.update_cover(track_id, cover_file)
+            logger.info(f"[REGEN-COVER {track_id[:8]}] New cover: {cover_file}")
+            return {"cover_art": cover_file}
+        raise HTTPException(status_code=500, detail="Cover art generation returned empty")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[REGEN-COVER {track_id[:8]}] Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health")
 async def health():
     acestep_ok = False
@@ -675,8 +752,15 @@ async def health():
 
 def _extract_genre(description: str) -> str:
     desc_lower = description.lower()
-    # Order matters — check specific terms before generic ones
+    # Order matters — compound genres FIRST, then specific, then generic.
+    # Multi-word matches must come before their single-word components.
     genre_map = [
+        # Compound genres (must be checked before their components)
+        (["country rock", "southern rock"], "country rock"),
+        (["latin pop"], "latin pop"),
+        (["k-pop", "kpop", "k pop"], "k-pop"),
+        (["j-pop", "jpop", "j pop", "anime"], "j-pop"),
+        # Standard genres
         (["rap battle", "rap song", "rapper", "rapping", "hip hop", "hip-hop", "hiphop", "trap"], "hip hop"),
         (["r&b", "r and b", "rnb", "rhythm and blues"], "r&b"),
         (["edm", "techno", "house music", "trance", "dubstep", "electronic"], "electronic"),
@@ -694,12 +778,10 @@ def _extract_genre(description: str) -> str:
         (["blues"], "blues"),
         (["reggae", "reggaeton"], "reggae"),
         (["soul", "motown"], "soul"),
-        (["latin", "salsa", "bossa nova", "latin pop"], "latin"),
+        (["latin", "salsa", "bossa nova"], "latin"),
         (["dance", "disco", "club"], "dance"),
         (["gospel", "worship", "hymn", "praise"], "gospel"),
-        (["ballad", "love song", "slow song"], "ballad"),
-        (["anime", "j-pop", "jpop"], "j-pop"),
-        (["k-pop", "kpop"], "k-pop"),
+        (["ballad", "love song", "slow song", "acoustic love"], "ballad"),
     ]
     for keywords, genre in genre_map:
         for kw in keywords:
@@ -728,11 +810,13 @@ def _emoji_for(genre: str) -> str:
         "rock": "\U0001f3b8", "pop": "\U0001f3a4", "jazz": "\U0001f3b7",
         "classical": "\U0001f3bb", "hip hop": "\U0001f3a7",
         "electronic": "\U0001f39b\ufe0f", "folk": "\U0001fa97",
-        "country": "\U0001f920", "r&b": "\U0001f399\ufe0f",
+        "country": "\U0001f920", "country rock": "\U0001f920",
+        "r&b": "\U0001f399\ufe0f",
         "metal": "\U0001f918", "indie": "\U0001f3b6",
         "ambient": "\U0001f30a", "blues": "\U0001f3b5",
         "reggae": "\U0001f334", "soul": "\u2764\ufe0f",
-        "punk": "\u26a1", "latin": "\U0001f483", "dance": "\U0001f57a",
+        "punk": "\u26a1", "latin": "\U0001f483", "latin pop": "\U0001f483",
+        "dance": "\U0001f57a",
         "orchestral": "\U0001f3bc", "gospel": "\U0001f64f",
         "ballad": "\U0001f49c", "j-pop": "\U0001f338",
         "k-pop": "\u2b50",
