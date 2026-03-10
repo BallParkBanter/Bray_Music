@@ -55,7 +55,8 @@ Bray_Music/                            ← Git repo (source of truth)
 ├── cover-art-service.service          ← systemd unit for cover art service
 ├── plans/
 │   ├── 001-initial-deployment.md      ← Original BMS deployment plan
-│   └── 002-validation-params-remix.md ← Current feature plan
+│   ├── 002-validation-params-remix.md ← Validation, saved params, remix
+│   └── 003-resilience-and-quality.md ← Retry, stats, cooldown, uptempo lyrics
 ├── docs/
 │   ├── acestep-as-built.md            ← ACE-Step installation & patch docs
 │   ├── custom-ui-design.md            ← UI design decisions
@@ -78,6 +79,7 @@ Bray_Music/                            ← Git repo (source of truth)
     ├── history.py                     ← history.json CRUD (async file locking)
     ├── lyrics_gen.py                  ← Ollama lyrics generation
     ├── validation.py                  ← Whisper service HTTP client
+    ├── stats.py                       ← Generation statistics tracking
     ├── main.py                        ← FastAPI app (all endpoints)
     ├── static/
     │   ├── index.html                 ← Main UI (Simple + Custom modes)
@@ -96,6 +98,7 @@ Plans are numbered and never overwritten. Each plan captures the design at the t
 
 - `plans/001-initial-deployment.md` — Original BMS deployment (completed 2026-03-04)
 - `plans/002-validation-params-remix.md` — Validation, saved params, remix features
+- `plans/003-resilience-and-quality.md` — ACE-Step retry, stats tracking, uptempo lyrics, generation cooldown
 
 ## Development Workflow
 
@@ -138,6 +141,7 @@ git push origin main && git push github main
 | POST | `/playlists/{id}/tracks` | Add track to playlist |
 | DELETE | `/playlists/{id}/tracks/{track_id}` | Remove track from playlist |
 | GET | `/health` | Health check |
+| GET | `/stats` | Generation statistics |
 
 ## Key Technical Facts
 
@@ -151,6 +155,9 @@ git push origin main && git push github main
 - Cover art VRAM: 7 GB loaded, 10.3 GB peak. Auto-unloads after 2 min idle to free GPU for ACE-Step
 - Cover art prompts: genre-specific visual styles (20 genres) + random art style pool (37 styles) for unknown genres
 - Lyrics: Ollama (gemma3:12b on Optimus 192.168.1.145:11434)
+- Generation concurrency: `asyncio.Semaphore(1)` prevents concurrent ACE-Step submissions
+- Statistics: `stats.py` tracks generation counts, timing, genres, quality ratings (GET /stats)
+- Uptempo lyrics: Fast genres (punk/pop/rock/metal/electronic/dance/k-pop) use extended template with pre-chorus + double chorus (~52 lines vs ~36 default)
 
 ## Container Management
 
@@ -171,7 +178,7 @@ docker compose restart ui
 # Rebuild UI after code changes
 docker compose build ui && docker compose up -d ui
 
-# Run tests
+# Run tests (163 tests)
 docker exec bray-music-ui python -m pytest tests/unit tests/api -v
 
 # Validate deployment

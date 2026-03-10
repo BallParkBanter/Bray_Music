@@ -83,10 +83,45 @@ Song description: {description}
 
 Lyrics:"""
 
+LYRICS_PROMPT_UPTEMPO = """You are a professional songwriter. Given a song description, write complete song lyrics for a full-length up-tempo track. This is an up-tempo song — write extra verses and a double chorus at the end to fill a full-length track (4+ minutes).
+
+Structure (follow this exactly):
+[Intro] - 2 lines setting the energy
+[Verse 1] - 8 lines (establish the story and vibe)
+[Pre-Chorus] - 2 lines (build anticipation)
+[Chorus] - 4 lines (the hook, most memorable part)
+[Verse 2] - 8 lines (advance the story, raise the stakes)
+[Pre-Chorus] - 2 lines (same or slight variation)
+[Chorus] - repeat the same chorus
+[Verse 3] - 8 lines (emotional climax or resolution)
+[Bridge] - 4 lines (different energy, builds tension)
+[Chorus] - repeat the chorus
+[Chorus] - repeat the chorus again (double chorus finale)
+[Outro] - 2 lines wrapping up with energy
+
+Rules:
+- The chorus MUST repeat identically each time
+- Each line should be short enough to sing (under 12 words)
+- Lyrics must match the described mood, genre, and story
+- Write vivid, specific imagery — no generic filler
+- Output ONLY the lyrics with structure tags. No commentary.
+
+Song description: {description}
+
+Lyrics:"""
+
 _GENRE_PROMPT_MAP = {
     "hip hop": LYRICS_PROMPT_RAP,
     "ballad": LYRICS_PROMPT_BALLAD,
     "gospel": LYRICS_PROMPT_BALLAD,
+    "punk": LYRICS_PROMPT_UPTEMPO,
+    "pop": LYRICS_PROMPT_UPTEMPO,
+    "k-pop": LYRICS_PROMPT_UPTEMPO,
+    "dance": LYRICS_PROMPT_UPTEMPO,
+    "electronic": LYRICS_PROMPT_UPTEMPO,
+    "metal": LYRICS_PROMPT_UPTEMPO,
+    "rock": LYRICS_PROMPT_UPTEMPO,
+    "country rock": LYRICS_PROMPT_UPTEMPO,
 }
 
 TITLE_PROMPT = """You are a music industry expert. Given a song description, create a short, catchy song title.

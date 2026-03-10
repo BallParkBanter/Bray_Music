@@ -18,6 +18,7 @@ import cover_art as cover_art_mod
 import gradio_client
 import lyrics_gen
 import history as history_mod
+import stats as stats_mod
 import validation as validation_mod
 from config import ACESTEP_URL, AUDIO_DIR, COVERS_DIR, OUTPUTS_DIR
 from models import GenerateRequest, GenerateResponse, HistoryResponse, TrackMeta, Playlist, PlaylistResponse
@@ -49,6 +50,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 # The generation runs as an independent task; SSE stream reads from the queue.
 # If client disconnects, generation still finishes and saves.
 _jobs: dict[str, asyncio.Queue] = {}
+
+# ACE-Step can only process one generation at a time.
+# Concurrent requests cause "No FLAC in result" errors.
+_generation_lock = asyncio.Semaphore(1)
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -122,7 +127,8 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
             logger.warning(f"Lyrics generation failed, proceeding without: {e}")
 
     try:
-        result = await gradio_client.generate(req, genre_hint=genre_hint)
+        async with _generation_lock:
+            result = await gradio_client.generate(req, genre_hint=genre_hint)
     except Exception as e:
         logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"ACE-Step error: {e}")
@@ -199,6 +205,102 @@ async def generate_stream(req: GenerateRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def _locked_acestep_generate(
+    track_id: str,
+    req: GenerateRequest,
+    genre_hint: str,
+    emit,
+) -> dict | None:
+    """Acquire the generation lock, health-check ACE-Step, submit, retry on crash.
+
+    Returns result_data dict on success, None on failure.
+    Emits SSE events via emit() for progress/errors.
+    """
+    # Check if another generation is already in progress
+    if _generation_lock.locked():
+        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Waiting for generation lock (another song is generating)...")
+        await emit({"event": "step", "step": "submit", "state": "active",
+                    "detail": "\u23f3 Another song is generating, waiting in queue..."})
+
+    async with _generation_lock:
+        # Health check: verify ACE-Step is reachable before submitting
+        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Checking health...")
+        for hc_attempt in range(6):
+            if await gradio_client.check_health():
+                break
+            wait_time = 30
+            logger.warning(f"[GEN {track_id[:8]}] ACESTEP: Not reachable, waiting {wait_time}s (attempt {hc_attempt+1}/6)...")
+            await emit({"event": "step", "step": "submit", "state": "active",
+                        "detail": f"\u23f3 Waiting for ACE-Step ({hc_attempt+1}/6)..."})
+            await asyncio.sleep(wait_time)
+        else:
+            logger.error(f"[GEN {track_id[:8]}] ACESTEP: Unreachable after 3 minutes of waiting")
+            await emit({"event": "error", "message": "ACE-Step is not responding. Please try again in a few minutes."})
+            await emit(None)
+            return None
+
+        # ACE-Step generation with retry on crash
+        max_retries = 1
+        result_data = None
+        for attempt in range(max_retries + 1):
+            step_start = time.time()
+            logger.info(f"[GEN {track_id[:8]}] ACESTEP: Submitting to ACE-Step{' (retry)' if attempt > 0 else ''}...")
+            ace_error = None
+            try:
+                async for evt in gradio_client.generate_streaming(req, genre_hint=genre_hint):
+                    await emit(evt)
+
+                    if evt.get("event") == "complete":
+                        result_data = evt["result"]
+                        elapsed = time.time() - step_start
+                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Complete in {elapsed:.1f}s — file: {result_data.get('filename', '?')}, seed: {result_data.get('seed', '?')}")
+                    elif evt.get("event") == "error":
+                        elapsed = time.time() - step_start
+                        ace_error = evt.get("message", "Unknown error")
+                        logger.error(f"[GEN {track_id[:8]}] ACESTEP: Error after {elapsed:.1f}s: {ace_error}")
+                        break
+                    elif evt.get("event") == "progress":
+                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Progress {evt.get('progress', '?')}%")
+            except Exception as e:
+                elapsed = time.time() - step_start
+                ace_error = str(e)
+                logger.error(f"[GEN {track_id[:8]}] ACESTEP: Stream error after {elapsed:.1f}s: {e}")
+
+            if result_data:
+                return result_data
+
+            # Failed — should we retry?
+            if attempt < max_retries:
+                logger.info(f"[GEN {track_id[:8]}] ACESTEP: Will retry (attempt {attempt+2}/{max_retries+1})...")
+                await emit({"event": "step", "step": "submit", "state": "active",
+                            "detail": "\u26a0\ufe0f ACE-Step crashed — waiting for restart, will retry..."})
+                # Wait for ACE-Step to restart (systemd takes 60-90s)
+                for wait_attempt in range(6):
+                    await asyncio.sleep(30)
+                    if await gradio_client.check_health():
+                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Back online after {(wait_attempt+1)*30}s")
+                        break
+                else:
+                    logger.error(f"[GEN {track_id[:8]}] ACESTEP: Not recovered after 3 min wait")
+                    try:
+                        await stats_mod.record_generation(genre=genre_hint, success=False)
+                    except Exception as e:
+                        logger.warning(f"[GEN {track_id[:8]}] Stats recording failed: {e}")
+                    await emit({"event": "error", "message": "ACE-Step crashed and did not recover"})
+                    await emit(None)
+                    return None
+            else:
+                try:
+                    await stats_mod.record_generation(genre=genre_hint, success=False)
+                except Exception as e:
+                    logger.warning(f"[GEN {track_id[:8]}] Stats recording failed: {e}")
+                await emit({"event": "error", "message": f"Generation failed: {ace_error}"})
+                await emit(None)
+                return None
+
+        return None  # Should not reach here
 
 
 async def _run_generation(
@@ -297,75 +399,14 @@ async def _run_generation(
 
         await emit({"event": "step", "step": "submit", "state": "active"})
 
-        # Health check: verify ACE-Step is reachable before submitting
-        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Checking health...")
-        for hc_attempt in range(6):
-            if await gradio_client.check_health():
-                break
-            wait_time = 30
-            logger.warning(f"[GEN {track_id[:8]}] ACESTEP: Not reachable, waiting {wait_time}s (attempt {hc_attempt+1}/6)...")
-            await emit({"event": "step", "step": "submit", "state": "active",
-                        "detail": f"\u23f3 Waiting for ACE-Step ({hc_attempt+1}/6)..."})
-            await asyncio.sleep(wait_time)
-        else:
-            logger.error(f"[GEN {track_id[:8]}] ACESTEP: Unreachable after 3 minutes of waiting")
-            await emit({"event": "error", "message": "ACE-Step is not responding. Please try again in a few minutes."})
-            await emit(None)
-            return
-
-        # Step: ACE-Step generation with retry on crash
-        max_retries = 1
-        result_data = None
-        for attempt in range(max_retries + 1):
-            step_start = time.time()
-            logger.info(f"[GEN {track_id[:8]}] ACESTEP: Submitting to ACE-Step{' (retry)' if attempt > 0 else ''}...")
-            ace_error = None
-            try:
-                async for evt in gradio_client.generate_streaming(req, genre_hint=genre_hint):
-                    await emit(evt)
-
-                    if evt.get("event") == "complete":
-                        result_data = evt["result"]
-                        elapsed = time.time() - step_start
-                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Complete in {elapsed:.1f}s — file: {result_data.get('filename', '?')}, seed: {result_data.get('seed', '?')}")
-                    elif evt.get("event") == "error":
-                        elapsed = time.time() - step_start
-                        ace_error = evt.get("message", "Unknown error")
-                        logger.error(f"[GEN {track_id[:8]}] ACESTEP: Error after {elapsed:.1f}s: {ace_error}")
-                        break
-                    elif evt.get("event") == "progress":
-                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Progress {evt.get('progress', '?')}%")
-            except Exception as e:
-                elapsed = time.time() - step_start
-                ace_error = str(e)
-                logger.error(f"[GEN {track_id[:8]}] ACESTEP: Stream error after {elapsed:.1f}s: {e}")
-
-            if result_data:
-                break  # Success
-
-            # Failed — should we retry?
-            if attempt < max_retries:
-                logger.info(f"[GEN {track_id[:8]}] ACESTEP: Will retry (attempt {attempt+2}/{max_retries+1})...")
-                await emit({"event": "step", "step": "submit", "state": "active",
-                            "detail": "\u26a0\ufe0f ACE-Step crashed — waiting for restart, will retry..."})
-                # Wait for ACE-Step to restart (systemd takes 60-90s)
-                for wait_attempt in range(6):
-                    await asyncio.sleep(30)
-                    if await gradio_client.check_health():
-                        logger.info(f"[GEN {track_id[:8]}] ACESTEP: Back online after {(wait_attempt+1)*30}s")
-                        break
-                else:
-                    logger.error(f"[GEN {track_id[:8]}] ACESTEP: Not recovered after 3 min wait")
-                    await emit({"event": "error", "message": "ACE-Step crashed and did not recover"})
-                    await emit(None)
-                    return
-            else:
-                await emit({"event": "error", "message": f"Generation failed: {ace_error}"})
-                await emit(None)
-                return
+        result_data = await _locked_acestep_generate(track_id, req, genre_hint, emit)
 
         if not result_data:
             logger.error(f"[GEN {track_id[:8]}] ACESTEP: No result after all attempts")
+            try:
+                await stats_mod.record_generation(genre=genre_hint, success=False)
+            except Exception as e:
+                logger.warning(f"[GEN {track_id[:8]}] Stats recording failed: {e}")
             await emit({"event": "error", "message": "No result from generator"})
             await emit(None)
             return
@@ -397,6 +438,16 @@ async def _run_generation(
 
         await history_mod.append(track)
         logger.info(f"[GEN {track_id[:8]}] SAVED: '{track.title}' | {filename} | {duration:.1f}s | seed={result_data['seed']}")
+
+        try:
+            gen_time = time.time() - job_start
+            await stats_mod.record_generation(
+                genre=genre_hint,
+                success=True,
+                generation_time=gen_time,
+            )
+        except Exception as e:
+            logger.warning(f"[GEN {track_id[:8]}] Stats recording failed: {e}")
 
         dur_m = int(duration // 60)
         dur_s = int(duration % 60)
@@ -486,6 +537,11 @@ async def _bg_validate_and_cover(
                 }.get(quality_rating, "\U0001f3a4")
                 validate_detail = f"{rating_emoji} Vocals verified: {quality_rating} ({score_pct}%) in {elapsed:.1f}s"
                 logger.info(f"[POST {tid}] WHISPER: {quality_rating} (score={result['quality_score']:.1f}) in {elapsed:.1f}s")
+                try:
+                    await stats_mod.record_quality(quality_rating)
+                    await stats_mod.record_validation_time(elapsed)
+                except Exception as e:
+                    logger.warning(f"[POST {tid}] Stats recording failed: {e}")
             else:
                 logger.warning(f"[POST {tid}] WHISPER: No result after {elapsed:.1f}s")
                 validate_detail = f"\u26a0\ufe0f Validation unavailable ({elapsed:.1f}s)"
@@ -513,6 +569,10 @@ async def _bg_validate_and_cover(
                 await emit({"event": "cover_art", "cover_art": cover_file})
                 cover_detail = f"\U0001f3a8 Cover art created in {elapsed:.1f}s"
                 logger.info(f"[POST {tid}] COVER: Saved {cover_file} in {elapsed:.1f}s")
+                try:
+                    await stats_mod.record_cover_art_time(elapsed)
+                except Exception as e:
+                    logger.warning(f"[POST {tid}] Stats recording failed: {e}")
             else:
                 logger.warning(f"[POST {tid}] COVER: Returned empty after {elapsed:.1f}s")
                 cover_detail = f"\u26a0\ufe0f Cover art empty ({elapsed:.1f}s)"
@@ -745,6 +805,11 @@ async def health():
         "gpu": gpu,
         "outputs_writable": os.access(OUTPUTS_DIR, os.W_OK),
     }
+
+
+@app.get("/stats")
+async def get_stats():
+    return await stats_mod.get_stats()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
