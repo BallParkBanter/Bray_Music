@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Bray Music Studio", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # In-flight generation jobs: job_id -> asyncio.Queue of SSE events
 # The generation runs as an independent task; SSE stream reads from the queue.
